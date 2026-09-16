@@ -390,6 +390,8 @@ Offer a logo upload for the end card.
 - Report running spend at every gate.
 - Reuse: a still approved for one season is the hub for its own seasonal variants, but always re-derive from the **original render**, not from the variant.
 - **[v2]** Reuse across films: a practice returns to the same project at DA, at CD and at completion. Keep the hub IDs, the chapter states and the approved heroes so a second film costs stills and clips only, not rediscovery.
+- **[v2] Never lose a generation you paid for.** A batch commits and accounts for each still or clip the moment it lands, not at the end. If the run dies at shot 12 of 14, those 12 are saved, charged and visible, and starting the batch again generates only the 2 that are missing. Nothing is ever paid for twice.
+- **[v2] Stop a dead provider early.** Two consecutive provider failures in one batch means the provider is down, not unlucky. Stop, report which shots failed, and charge for nothing that did not arrive.
 
 ---
 

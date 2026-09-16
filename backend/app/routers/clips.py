@@ -5,15 +5,15 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import config, costs
+from .. import config, costs, jobs
 from ..models import Clip
 from ..services.analysis.qc import run_qc
 from ..services.imageops import video_first_frame
 from ..services.planning import prompts
 from ..services.providers import ProviderError, get_provider
-from ..store import abs_path, new_id, project_dir, rel, save_project
+from ..store import abs_path, mutate, new_id, project_dir, rel, save_project
 from .common import get, gate
-from .stills import _gen_still
+from .stills import _charge_still, _gen_still
 
 router = APIRouter(prefix="/api/projects/{pid}/clips", tags=["clips"])
 
@@ -42,7 +42,6 @@ def _gen_clip(p, shot, still, attempt: int, motion_override: str | None = None) 
         res = prov.generate_clip(abs_path(still.path), prompt, neg, shot.duration, p.intake.aspect, out)
     except ProviderError as e:
         raise HTTPException(502, f"provider error: {e}")
-    costs.charge(p, "clip", res.cost, f"shot {shot.n} attempt {attempt} ({prov.name})")
     thumb = project_dir(p.id) / "thumbs" / f"{cid}.jpg"
     bright = video_first_frame(out, thumb)
     c = Clip(id=cid, shot_n=shot.n, cls=shot.cls, source_hub_id=shot.source_hub_id, still_id=still.id, attempt=attempt,
@@ -55,21 +54,68 @@ def _gen_clip(p, shot, still, attempt: int, motion_override: str | None = None) 
     return c
 
 
+def _charge_clip(p, c: Clip) -> None:
+    costs.charge(p, "clip", c.cost, f"shot {c.shot_n} attempt {c.attempt} ({c.provider})")
+
+
+def _clips_batch(pid: str, job_id: str | None = None) -> list[Clip]:
+    """Generate a clip for every shot that lacks one, committing each as it
+    lands. Video is the expensive step, so a batch that dies at shot 12 of 14
+    must not lose the twelve already paid for."""
+    p = get(pid)
+    todo = [s for s in p.plan.shots
+            if not any(c.shot_n == s.n and c.status in ("pending", "approved") for c in p.clips)]
+    if job_id:
+        jobs.progress(job_id, done=0, current=f"{len(todo)} clip(s) to generate")
+    made: list[Clip] = []
+    consecutive_failures = 0
+    for i, shot in enumerate(todo):
+        if job_id:
+            jobs.progress(job_id, done=i, current=f"shot {shot.n} ({shot.cls}, {shot.duration}s)")
+        snap = get(pid)
+        still = _approved_still(snap, shot.n)
+        if still is None:
+            if job_id:
+                jobs.progress(job_id, error=f"shot {shot.n}: no approved still")
+            continue
+        try:
+            c = _gen_clip(snap, shot, still, attempt=1)
+        except HTTPException as e:
+            consecutive_failures += 1
+            if job_id:
+                jobs.progress(job_id, error=f"shot {shot.n}: {e.detail}")
+            if consecutive_failures >= 2:
+                if job_id:
+                    jobs.progress(job_id, error="stopped after two consecutive provider failures")
+                break
+            continue
+        consecutive_failures = 0
+        with mutate(pid) as cur:
+            cur.clips.append(c)
+            _charge_clip(cur, c)
+            cur.stage = "clips"
+        made.append(c)
+        if job_id:
+            jobs.progress(job_id, done=i + 1, current=f"shot {shot.n}: QC {'pass' if c.qc.passed else 'fail'}")
+    return made
+
+
 @router.post("/generate")
-def generate(pid: str):
+def generate(pid: str, background: bool = False):
     p = get(pid)
     missing = [s.n for s in p.plan.shots if not _approved_still(p, s.n)]
     gate(not missing, f"Law 3: approve a still for every shot before video. Missing: {missing}")
-    made = []
-    for shot in p.plan.shots:
-        if any(c.shot_n == shot.n and c.status in ("pending", "approved") for c in p.clips):
-            continue
-        still = _approved_still(p, shot.n)
-        c = _gen_clip(p, shot, still, attempt=1)
-        p.clips.append(c)
-        made.append(c)
-    p.stage = "clips"
-    save_project(p)
+    gate(not jobs.active_for_project(pid), "a generation job is already running for this project")
+    todo = [s for s in p.plan.shots
+            if not any(c.shot_n == s.n and c.status in ("pending", "approved") for c in p.clips)]
+    if background:
+        jobs.prune()
+        job_id = new_id("job")
+        jobs.create(job_id, pid, "clips", len(todo))
+        jobs.run_in_thread(job_id, lambda: _clips_batch(pid, job_id))
+        return {"job": jobs.get(job_id).as_dict()}
+    made = _clips_batch(pid)
+    p = get(pid)
     return {"made": made, "clips": p.clips, "ledger": costs.summary(p)}
 
 
@@ -150,6 +196,7 @@ def regenerate(pid: str, body: RegenBody):
             st = _gen_still(p, shot2, hub, project_dir(pid) / "stills", corrections=item.note, attempt=1 + sum(1 for s in p.stills if s.shot_n == shot.n))
             st.status = "approved"
             still.status = "rejected"
+            _charge_still(p, st)
             p.stills.append(st)
             still = st
             motion = prompts.motion_prompt(p, shot2)
@@ -157,6 +204,7 @@ def regenerate(pid: str, body: RegenBody):
             motion = prompts.motion_prompt(p, shot) + f" Direction notes: {item.note}"
         c = _gen_clip(p, shot2 if item.mode in ("lighter_cues", "dry") else shot, still, attempt=attempt, motion_override=motion)
         c.note = note
+        _charge_clip(p, c)
         p.clips.append(c)
         made.append(c)
     save_project(p)

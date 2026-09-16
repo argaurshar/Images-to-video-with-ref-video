@@ -3,13 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import config, costs
+from .. import config, costs, jobs
 from ..models import Hero, Still
 from ..services.audit import audit_still
 from ..services.imageops import make_thumb
 from ..services.planning import prompts
 from ..services.providers import ProviderError, get_provider
-from ..store import abs_path, new_id, project_dir, rel, save_project
+from ..store import abs_path, mutate, new_id, project_dir, rel, save_project
 from .common import get, gate
 
 router = APIRouter(prefix="/api/projects/{pid}", tags=["stills"])
@@ -34,13 +34,59 @@ def _gen_still(p, shot, hub, out_dir, corrections: str = "", attempt: int = 1) -
         res = prov.generate_still(abs_path(hub.path), prompt, neg, p.intake.aspect, out)
     except ProviderError as e:
         raise HTTPException(502, f"provider error: {e}")
-    costs.charge(p, "still", res.cost, f"shot {shot.n} attempt {attempt} ({prov.name})")
     make_thumb(out, project_dir(p.id) / "thumbs" / f"{sid}.jpg")
     st = Still(id=sid, shot_n=shot.n or None, cls=shot.cls, source_hub_id=hub.id, attempt=attempt, path=rel(out),
                thumb=rel(project_dir(p.id) / "thumbs" / f"{sid}.jpg"), prompt=prompt, negative=neg,
                provider=prov.name, provider_id=res.provider_id, cost=res.cost)
     st.audit = audit_still(abs_path(hub.path), out, shot.cls)
     return st
+
+
+def _charge_still(p, st: Still, label: str = "still") -> None:
+    costs.charge(p, label, st.cost, f"shot {st.shot_n if st.shot_n else 'hero'} attempt {st.attempt} ({st.provider})")
+
+
+def _stills_batch(pid: str, job_id: str | None = None) -> list[Still]:
+    """Generate every still that does not have one yet.
+
+    Each finished still is committed on its own. A batch that dies partway
+    through has already saved and accounted for everything it paid for, and
+    running it again resumes rather than paying twice.
+    """
+    p = get(pid)
+    todo = [s for s in p.plan.shots
+            if not any(x.shot_n == s.n and x.status in ("pending", "approved") for x in p.stills)]
+    if job_id:
+        jobs.progress(job_id, done=0, current=f"{len(todo)} still(s) to generate")
+    made: list[Still] = []
+    consecutive_failures = 0
+    for i, shot in enumerate(todo):
+        if job_id:
+            jobs.progress(job_id, done=i, current=f"shot {shot.n} ({shot.cls})")
+        snap = get(pid)
+        hub = snap.hub(shot.source_hub_id)
+        attempt = 1 + sum(1 for x in snap.stills if x.shot_n == shot.n)
+        try:
+            st = _gen_still(snap, shot, hub, project_dir(pid) / "stills", attempt=attempt)
+        except HTTPException as e:
+            consecutive_failures += 1
+            if job_id:
+                jobs.progress(job_id, error=f"shot {shot.n}: {e.detail}")
+            # a provider that fails twice in a row is down, not unlucky
+            if consecutive_failures >= 2:
+                if job_id:
+                    jobs.progress(job_id, error="stopped after two consecutive provider failures")
+                break
+            continue
+        consecutive_failures = 0
+        with mutate(pid) as cur:
+            cur.stills.append(st)
+            _charge_still(cur, st)
+            cur.stage = "board"
+        made.append(st)
+        if job_id:
+            jobs.progress(job_id, done=i + 1)
+    return made
 
 
 # ---------------------------------------------------------------- heroes
@@ -58,13 +104,16 @@ def heroes_generate(pid: str):
         shot = prompts.hero_shot(p, cls)
         hub = p.hub(shot.source_hub_id)
         for v in (1, 2):
-            st = _gen_still(p, shot, hub, out_dir, corrections="" if v == 1 else "second variant: slightly cooler grade, mist thinner", attempt=v)
+            st = _gen_still(p, shot, hub, out_dir,
+                            corrections="" if v == 1 else "second variant: slightly cooler grade, mist thinner", attempt=v)
             h = Hero(**st.model_dump(), variant=v)
             h.shot_n = None
-            p.heroes.append(h)
+            with mutate(pid) as cur:
+                cur.heroes.append(h)
+                _charge_still(cur, h, "hero")
+                cur.stage = "hero"
             made.append(h)
-    p.stage = "hero"
-    save_project(p)
+    p = get(pid)
     return {"heroes": p.heroes, "ledger": costs.summary(p)}
 
 
@@ -88,22 +137,21 @@ def hero_choose(pid: str, hid: str):
 
 # ---------------------------------------------------------------- board
 @router.post("/stills/generate")
-def stills_generate(pid: str):
+def stills_generate(pid: str, background: bool = False):
     p = get(pid)
     classes = {s.cls for s in p.plan.shots}
     gate(all(any(h.cls == c and h.chosen for h in p.heroes) for c in classes), "choose a hero for every class first")
-    out_dir = project_dir(pid) / "stills"
-    made = []
-    for shot in p.plan.shots:
-        if any(s.shot_n == shot.n and s.status in ("pending", "approved") for s in p.stills):
-            continue
-        hub = p.hub(shot.source_hub_id)
-        attempt = 1 + sum(1 for s in p.stills if s.shot_n == shot.n)
-        st = _gen_still(p, shot, hub, out_dir, attempt=attempt)
-        p.stills.append(st)
-        made.append(st)
-    p.stage = "board"
-    save_project(p)
+    gate(not jobs.active_for_project(pid), "a generation job is already running for this project")
+    todo = [s for s in p.plan.shots
+            if not any(x.shot_n == s.n and x.status in ("pending", "approved") for x in p.stills)]
+    if background:
+        jobs.prune()
+        job_id = new_id("job")
+        jobs.create(job_id, pid, "stills", len(todo))
+        jobs.run_in_thread(job_id, lambda: _stills_batch(pid, job_id))
+        return {"job": jobs.get(job_id).as_dict()}
+    made = _stills_batch(pid)
+    p = get(pid)
     return {"made": made, "stills": p.stills, "ledger": costs.summary(p)}
 
 
@@ -166,7 +214,12 @@ def stills_regenerate(pid: str, body: Regen):
         corr = body.corrections.get(n) or body.corrections.get(str(n)) or notes  # type: ignore[call-overload]
         hub = p.hub(shot.source_hub_id)
         st = _gen_still(p, shot, hub, out_dir, corrections=corr, attempt=len(prior) + 1)
-        p.stills.append(st)
+        with mutate(pid) as cur:
+            for x in cur.stills:
+                if x.shot_n == n and x.status == "pending":
+                    x.status = "rejected"
+            cur.stills.append(st)
+            _charge_still(cur, st)
         made.append(st)
-    save_project(p)
+    p = get(pid)
     return {"made": made, "stills": p.stills, "ledger": costs.summary(p)}

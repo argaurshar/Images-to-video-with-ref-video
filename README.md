@@ -10,6 +10,7 @@ The app enforces the spec's laws server-side: every still comes from an original
 - **Reference analysis**: shot detection, light arc, colour stats, weather density, scale rhythm and inside/outside pattern of a reference film. The structure is then applied to the plan: per-shot length, exterior/interior rhythm, scale changes, and a time arc taken from the light curve's shape. Colour is deliberately not copied, because a reference's grade belongs to its own climate.
 - **Shot plan**: a deterministic planner that applies the scale pyramid, calendar order for the site's hemisphere, chapter closers, human beats at the edges, one heavy weather beat, approach → enter → dwell → detail → return, and maps your three design intents to shots. Sun side comes from the orientation you stated. Interior emphasis steers interior times, lighting and cues. An interior linked to an exterior inherits that exterior's exact weather and time, so the window never shows rain while the room shows sun. Every shot carries its own editable duration.
 - **Hero gate, still board, clips**: generation through a pluggable provider, a fidelity audit of every still against its hub render, and the QC suite (motion, frozen ratio, particle density in the sky or glazing band, geometry drift, region check, vertical drift, exposure and hue drift, text check) on every clip.
+- **Batches that survive a crash**: the still board and the clip run commit and account for each item as it completes, so a run that dies partway keeps everything it paid for and resumes rather than paying twice. Long runs go to a background job with live progress, because fourteen clips on a real provider is tens of minutes, not one HTTP request.
 - **Sequence editor, branding, final render**: drag ordering with a light-arc strip and continuity warnings; title cards, stage stamp and disclaimer; ffmpeg render at 30 fps with an ambience bed normalised to −16 LUFS; crop-only variants; a stills pack; a project record (JSON and HTML) with every prompt, audit, QC table, approval and cost.
 
 ## Run it
@@ -34,6 +35,18 @@ export ARCHVIZ_VIDEO_COST=0.28      # per 5 s clip
 The Freepik adapter (`backend/app/services/providers/freepik.py`) submits an image edit with the hub render as reference and an image-to-video task from the approved still, then polls. Model paths are environment variables (`FREEPIK_IMAGE_EDIT_PATH`, `FREEPIK_VIDEO_PATH`) because model names on that platform change; check them against the current API reference before a paid run. Adding another provider means one class with two methods (`generate_still`, `generate_clip`) in that folder.
 
 Optional: set `ANTHROPIC_API_KEY` and the engine asks Claude to research the location profile (climate, vegetation, wet and snow months, local signature). Without it, a built-in table covers the Bay Area, India, the Himalaya, the UK, Japan, Australia and the Gulf, and everything else gets a generic temperate profile that says so.
+
+## Long runs
+
+The two expensive stages accept `?background=true`, which returns a job instead of holding the request open:
+
+```
+POST /api/projects/<id>/stills/generate?background=true
+POST /api/projects/<id>/clips/generate?background=true
+GET  /api/projects/<id>/jobs            # active job and history
+```
+
+The front end uses this and shows a progress card. The job registry is in memory, so if the server restarts mid-batch the job disappears from the list, but every generation it had already finished is saved. Press generate again and it picks up where it stopped.
 
 ## Tests
 

@@ -1,4 +1,5 @@
 """End-to-end run of the spec's pipeline on the mock provider."""
+import pytest
 from tests.conftest import synth_exterior, synth_interior
 
 
@@ -346,3 +347,112 @@ def test_validate_flags_a_wholly_unused_render_class():
     for s in plan.shots:                      # force every shot onto the exterior render
         s.cls, s.source_hub_id = "exterior", "h0"
     assert any("No shot uses any of the 1 interior render" in w for w in validate(plan, p))
+
+
+def _ready_for_stills(client, shots=4):
+    """A project taken as far as the still board gate."""
+    from tests.conftest import synth_exterior, synth_interior
+    pid = client.post("/api/projects", json={"name": "batch"}).json()["id"]
+    client.post(f"/api/projects/{pid}/hubs", files=[
+        ("files", ("front.png", synth_exterior(), "image/png")),
+        ("files", ("living.png", synth_interior(), "image/png"))])
+    client.put(f"/api/projects/{pid}/intake", json={"location": "San Jose, California", "length_shots": shots,
+                                                    "seasons": ["summer"], "people": "none"})
+    client.post(f"/api/projects/{pid}/plan/generate")
+    client.post(f"/api/projects/{pid}/plan/approve")
+    client.post(f"/api/projects/{pid}/budget/confirm")
+    client.post(f"/api/projects/{pid}/heroes/generate")
+    for h in client.get(f"/api/projects/{pid}").json()["heroes"]:
+        if h["variant"] == 1:
+            client.post(f"/api/projects/{pid}/heroes/{h['id']}/choose")
+    return pid
+
+
+def test_a_dying_batch_keeps_everything_it_paid_for(client, monkeypatch):
+    """The failure that costs real money: a batch that stops partway must have
+    persisted and accounted for every generation it already paid for, and
+    running it again must resume rather than pay twice."""
+    from app.routers import stills as stills_router
+    pid = _ready_for_stills(client, shots=4)
+    before = client.get(f"/api/projects/{pid}/ledger").json()["summary"]["spent"]
+
+    real = stills_router._gen_still
+    calls = {"n": 0}
+
+    def explode_on_third(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] >= 3:
+            raise RuntimeError("provider went down mid-batch")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(stills_router, "_gen_still", explode_on_third)
+    with pytest.raises(RuntimeError):
+        client.post(f"/api/projects/{pid}/stills/generate")
+
+    p = client.get(f"/api/projects/{pid}").json()
+    saved = [s for s in p["stills"] if s["status"] == "pending"]
+    assert len(saved) == 2, "the two finished stills were lost"
+    charges = [e for e in p["ledger"] if e["kind"] == "still"]
+    assert len(charges) == 2, "paid work was not accounted for"
+    spent = client.get(f"/api/projects/{pid}/ledger").json()["summary"]["spent"]
+    assert spent > before
+
+    # resuming pays only for what is still missing
+    monkeypatch.setattr(stills_router, "_gen_still", real)
+    r = client.post(f"/api/projects/{pid}/stills/generate")
+    assert r.status_code == 200
+    assert len(r.json()["made"]) == 2, "resume should generate only the two that were missing"
+    p2 = client.get(f"/api/projects/{pid}").json()
+    assert len({s["shot_n"] for s in p2["stills"] if s["status"] == "pending"}) == 4
+    assert len([e for e in p2["ledger"] if e["kind"] == "still"]) == 4, "a resume must not pay twice"
+
+
+def test_batch_stops_after_two_consecutive_provider_failures(client, monkeypatch):
+    from app.routers import stills as stills_router
+    from fastapi import HTTPException
+    pid = _ready_for_stills(client, shots=5)
+
+    def always_502(*a, **kw):
+        raise HTTPException(502, "provider error: upstream down")
+
+    monkeypatch.setattr(stills_router, "_gen_still", always_502)
+    made = stills_router._stills_batch(pid, job_id=None)
+    assert made == []
+    p = client.get(f"/api/projects/{pid}").json()
+    assert not [s for s in p["stills"] if s["status"] == "pending"]
+    assert not [e for e in p["ledger"] if e["kind"] == "still"], "nothing should be charged for failures"
+
+
+def test_background_job_reports_progress(client):
+    import time
+    pid = _ready_for_stills(client, shots=3)
+    r = client.post(f"/api/projects/{pid}/stills/generate?background=true")
+    assert r.status_code == 200
+    job = r.json()["job"]
+    assert job["kind"] == "stills" and job["total"] == 3 and job["status"] == "running"
+
+    # a second batch is refused while one is in flight
+    assert client.post(f"/api/projects/{pid}/stills/generate?background=true").status_code == 409
+
+    for _ in range(120):
+        j = client.get(f"/api/projects/{pid}/jobs/{job['id']}").json()
+        if j["status"] != "running":
+            break
+        time.sleep(0.5)
+    assert j["status"] == "finished", j
+    assert j["done"] == 3 and not j["errors"]
+    assert client.get(f"/api/projects/{pid}/jobs").json()["active"] is None
+    assert len(client.get(f"/api/projects/{pid}").json()["stills"]) == 3
+
+
+def test_a_crafted_project_id_cannot_escape_the_data_directory(client):
+    """Project ids are server-generated and only ever name a directory inside
+    the data root, so a traversal attempt is a not-found, never a path."""
+    from app.store import project_dir
+    for bad in ("../../etc", "a/../../b", "", "..", "x" * 80):
+        with pytest.raises(ValueError):
+            project_dir(bad)
+    assert str(project_dir("prj_abc12345")).endswith("/projects/prj_abc12345")
+    for bad in ("..%2F..%2Fetc", "..", "%2e%2e"):
+        r = client.get(f"/api/projects/{bad}")
+        assert r.status_code in (404, 307), f"{bad} -> {r.status_code}"

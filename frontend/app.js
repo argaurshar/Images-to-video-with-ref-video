@@ -35,6 +35,27 @@ async function busy(fn, msg) {
   if (msg) toast(msg);
   try { await fn(); } catch (e) { toast(e.message, true); console.error(e); } finally { m.classList.remove("busy"); }
 }
+async function pollJob(kind) {
+  // The big batches run server-side; follow their progress instead of holding
+  // a single request open for what can be tens of minutes with a real provider.
+  const bar = el("jobbar");
+  for (;;) {
+    const { active } = await api(`/api/projects/${P.id}/jobs`);
+    if (!active) break;
+    if (bar) {
+      const pct = active.total ? Math.round((active.done / active.total) * 100) : 0;
+      bar.innerHTML = `<div class="card"><b>Generating ${esc(active.kind)}</b> · ${active.done}/${active.total} (${pct}%)
+        <div class="muted">${esc(active.current || "")}</div>
+        ${active.errors.length ? `<ul class="warn-list">${active.errors.map(e => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}</div>`;
+    }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  const { jobs: all } = await api(`/api/projects/${P.id}/jobs`);
+  const last = all.filter(j => j.kind === kind).pop();
+  if (last && last.errors.length) toast(`${kind}: ${last.errors.join("; ")}`, true);
+  if (bar) bar.innerHTML = "";
+}
+
 async function reload() { if (P) P = await api(`/api/projects/${P.id}`); await renderProjectBar(); renderAll(); }
 function hub(id) { return (P.hubs || []).find(h => h.id === id) || {}; }
 function shot(n) { return (P.plan.shots || []).find(s => s.n === n) || {}; }
@@ -261,9 +282,13 @@ function rBoard() {
     </div></div>`; }).join("");
   el("main").innerHTML = `
     <h2>Still board</h2><p class="lead">Every still comes from its hub render, never from another generation. Light motion cues only. Approve all, approve some, or reject specific numbers; only rejected numbers are regenerated, and your note becomes an explicit exclusion in the retry.</p>
+    <div id="jobbar"></div>
     <div class="card"><div class="row"><button class="btn" id="gen">Generate board</button><button class="btn secondary" id="all" ${stills.length ? "" : "disabled"}>Approve all pending</button><button class="btn secondary" id="regen" ${rejected.length ? "" : "disabled"}>Regenerate rejected (${rejected.join(", ") || "none"})</button></div></div>
     <div class="grid">${tiles}</div>`;
-  el("gen").onclick = () => busy(async () => { await api(`/api/projects/${P.id}/stills/generate`, { method: "POST" }); await reload(); }, "generating stills from hub renders…");
+  el("gen").onclick = () => busy(async () => {
+    await api(`/api/projects/${P.id}/stills/generate?background=true`, { method: "POST" });
+    await pollJob("stills"); await reload();
+  }, "generating stills from hub renders…");
   el("all").onclick = () => busy(async () => { await api(`/api/projects/${P.id}/stills/approve_all`, { method: "POST" }); await reload(); });
   el("regen").onclick = () => busy(async () => { await api(`/api/projects/${P.id}/stills/regenerate`, { body: { shot_ns: rejected } }); await reload(); }, "regenerating rejected stills…");
   el("main").querySelectorAll("[data-approve]").forEach(b => b.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/stills/${b.dataset.approve}/approve`, { method: "POST" }); await reload(); }));
@@ -294,9 +319,13 @@ function rClips() {
         <div class="muted">${attempts} attempt${attempts === 1 ? "" : "s"}; after ${health.max_attempts || 2} the engine recommends a cut or a dry re-shoot</div></td></tr>`; }).join("");
   el("main").innerHTML = `
     <h2>Clips and QC</h2><p class="lead">Every clip is measured before you see it. Fails are named with their cause. Regenerate only what you name, and only with a real change: the camera, the cue weight, or the weather. Never the same prompt again.</p>
+    <div id="jobbar"></div>
     <div class="card"><button class="btn" id="gen">Generate clips for approved stills</button> <span class="muted">video costs about 3.5× an image; the server refuses until every shot has an approved still</span></div>
     <div class="card" style="overflow:auto"><table><tr><th>shot</th><th>clip</th><th>QC</th><th>status</th><th>actions</th></tr>${rows}</table></div>`;
-  el("gen").onclick = () => busy(async () => { await api(`/api/projects/${P.id}/clips/generate`, { method: "POST" }); await reload(); }, "generating and measuring clips…");
+  el("gen").onclick = () => busy(async () => {
+    await api(`/api/projects/${P.id}/clips/generate?background=true`, { method: "POST" });
+    await pollJob("clips"); await reload();
+  }, "generating and measuring clips…");
   el("main").querySelectorAll("[data-approve]").forEach(b => b.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/clips/${b.dataset.approve}/approve`, { method: "POST" }); await reload(); }));
   el("main").querySelectorAll("[data-cut]").forEach(b => b.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/clips/${b.dataset.cut}/cut`, { method: "POST" }); await reload(); }));
   el("main").querySelectorAll("[data-regen]").forEach(b => b.onclick = () => busy(async () => {

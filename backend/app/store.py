@@ -14,8 +14,10 @@ back it up and email it. It is also the project record the spec asks for.
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from .config import DATA_DIR, ensure_dirs
@@ -29,7 +31,16 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(4)}"
 
 
+# Project ids are server-generated ("prj_" + 8 hex). Validating here, at the
+# one place that turns an id into a path, stops a crafted id such as
+# "../../etc" from building a path outside the data directory. Every route
+# reaches the filesystem through this function.
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
 def project_dir(pid: str) -> Path:
+    if not _ID_RE.match(pid or ""):
+        raise ValueError(f"invalid project id: {pid!r}")
     return DATA_DIR / "projects" / pid
 
 
@@ -75,6 +86,31 @@ def save_project(p: Project) -> None:
     with _lock:
         tmp.write_text(p.model_dump_json(indent=2))
         tmp.replace(f)
+
+
+_project_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def project_lock(pid: str) -> threading.Lock:
+    with _locks_guard:
+        return _project_locks.setdefault(pid, threading.Lock())
+
+
+@contextmanager
+def mutate(pid: str):
+    """Load, hand over, save, all under one per-project lock.
+
+    Generation happens *outside* this block: a provider call takes minutes and
+    holding the lock across it would freeze every read of the project. The
+    pattern is generate first, then reopen the project and commit the result,
+    so a long batch persists each paid item as it lands.
+    """
+    lock = project_lock(pid)
+    with lock:
+        p = load_project(pid)
+        yield p
+        save_project(p)
 
 
 def rel(path: Path) -> str:

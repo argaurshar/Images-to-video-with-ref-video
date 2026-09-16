@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .. import costs
+from .. import costs, jobs
 from ..models import HubImage, Intake
 from ..services.analysis.hub import analyse_hub
 from ..services.imageops import crop_loss, make_thumb
@@ -160,6 +160,23 @@ def confirm_budget(pid: str):
     p.record_approval("budget", p.budget.model_dump())
     save_project(p)
     return p.budget
+
+
+@router.get("/projects/{pid}/jobs")
+def list_jobs(pid: str):
+    """Progress for this project's batches. The registry lives in memory, so
+    after a server restart a batch that was running simply is not listed; the
+    work it had finished is already saved and pressing generate resumes it."""
+    get(pid)
+    return {"active": jobs.active_for_project(pid), "jobs": jobs.for_project(pid)}
+
+
+@router.get("/projects/{pid}/jobs/{job_id}")
+def get_job(pid: str, job_id: str):
+    job = jobs.get(job_id)
+    if not job or job.project_id != pid:
+        raise HTTPException(404, "job not found")
+    return job.as_dict()
 
 
 @router.get("/projects/{pid}/ledger")
