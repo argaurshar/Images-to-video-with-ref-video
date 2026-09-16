@@ -1,0 +1,68 @@
+# ArchViz Cinematic Engine
+
+Turns an architect's or interior designer's renders into a short cinematic film across seasons, times of day and moods, without ever redesigning the building. Built from `SPEC.md` (v2.0, the architecture and interior design edition of the original mega prompt).
+
+The app enforces the spec's laws server-side: every still comes from an original render, video is refused until every still is approved, every clip is measured before it is shown, and a shot that fails twice is cut or re-shot dry rather than tried a third time.
+
+## What you get
+
+- **Intake**: upload 1 to 8 renders (exterior, interior or both), name the finishes, state which way each exterior camera faces, answer the questionnaire, confirm a budget.
+- **Reference analysis**: shot detection, light arc, colour stats, weather density, scale rhythm and inside/outside pattern of a reference film. Structure is copied; colour is not.
+- **Shot plan**: a deterministic planner that applies the scale pyramid, calendar order for the site's hemisphere, chapter closers, human beats at the edges, one heavy weather beat, approach → enter → dwell → detail → return, and maps your three design intents to shots. Sun side comes from the orientation you stated.
+- **Hero gate, still board, clips**: generation through a pluggable provider, a fidelity audit of every still against its hub render, and the QC suite (motion, frozen ratio, particle density in the sky or glazing band, geometry drift, region check, vertical drift, exposure and hue drift, text check) on every clip.
+- **Sequence editor, branding, final render**: drag ordering with a light-arc strip and continuity warnings; title cards, stage stamp and disclaimer; ffmpeg render at 30 fps with an ambience bed normalised to −16 LUFS; crop-only variants; a stills pack; a project record (JSON and HTML) with every prompt, audit, QC table, approval and cost.
+
+## Run it
+
+```bash
+pip install -r requirements.txt
+./run.sh            # http://127.0.0.1:8000
+```
+
+That runs on the **mock provider**: stills are the hub render with a season and light treatment, clips are made locally with ffmpeg. Nothing is charged, but the whole pipeline, the audit and the QC run for real, so you can rehearse a project before spending.
+
+### Real generation
+
+```bash
+export ARCHVIZ_PROVIDER=freepik
+export FREEPIK_API_KEY=...          # Freepik / Magnific API
+export ARCHVIZ_IMAGE_COST=0.08      # what your contract charges per image
+export ARCHVIZ_VIDEO_COST=0.28      # per 5 s clip
+./run.sh
+```
+
+The Freepik adapter (`backend/app/services/providers/freepik.py`) submits an image edit with the hub render as reference and an image-to-video task from the approved still, then polls. Model paths are environment variables (`FREEPIK_IMAGE_EDIT_PATH`, `FREEPIK_VIDEO_PATH`) because model names on that platform change; check them against the current API reference before a paid run. Adding another provider means one class with two methods (`generate_still`, `generate_clip`) in that folder.
+
+Optional: set `ANTHROPIC_API_KEY` and the engine asks Claude to research the location profile (climate, vegetation, wet and snow months, local signature). Without it, a built-in table covers the Bay Area, India, the Himalaya, the UK, Japan, Australia and the Gulf, and everything else gets a generic temperate profile that says so.
+
+## Tests
+
+```bash
+cd backend && python -m pytest -q
+```
+
+The suite runs the whole pipeline on the mock provider (about two and a half minutes, most of it ffmpeg), plus reference analysis, sun-side logic and a dead-clip QC check.
+
+## Layout
+
+```
+SPEC.md                      the v2 spec the app implements
+docs/…_v1_original.md        the original mega prompt, unchanged
+backend/app/
+  main.py                    FastAPI app, serves the API and the front end
+  models.py                  project document (also the project record)
+  store.py                   one JSON file + asset folders per project under data/
+  routers/                   intake, reference, plan, stills, clips, sequence, render
+  services/analysis/         hub detection, reference measurement, QC suite
+  services/planning/         location and sun side, shot planner, prompt builders
+  services/providers/        mock, freepik, (add yours here)
+  services/render/           ffmpeg pipeline, stills pack, project record
+frontend/                    no-build front end (index.html, app.js, styles.css)
+```
+
+## Limits to know about
+
+- The fidelity audit and the QC metrics are numeric proxies. They catch gross drift and painted overlays; a designer still runs the checklist by eye before approving a still.
+- Sun direction is approximated from the stated compass heading and the time slot (Law 7). It is not a solar study and the disclaimer says so.
+- The synthetic ambience bed is a placeholder. Upload real beds and a score on the branding page.
+- Analysis of a reference video's audio reports only whether a track exists; narration versus ambience is checked by ear.
