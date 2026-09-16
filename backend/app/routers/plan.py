@@ -43,7 +43,7 @@ def edit(pid: str, body: PlanEdit):
     for i, s in enumerate(p.plan.shots):
         s.n = i + 1
     p.plan.approved = False
-    p.plan.warnings = validate(p.plan, p)
+    p.plan.warnings = validate(p.plan, p, reference_driven=p.plan.reference_driven)
     p.intake.length_shots = len(p.plan.shots)
     p.budget = costs.estimate(p)
     save_project(p)

@@ -49,7 +49,7 @@ Open by asking for the renders, then run the questionnaire. Use tappable options
   - **Interior** renders: rooms of the same scheme. Several rooms are fine. Several angles of one room are better.
 - Store each with a stable ID and a class (exterior / interior). These are the **hub images** for the whole session.
 - Auto-detect and state back: class, project type (house, ADU, extension, apartment, workplace, hospitality), primary materials and finishes, apparent climate and terrain for exteriors, apparent time of day, artificial light state (on / off) for interiors, dominant colour temperature.
-- **[v2] Continuity groups**: if an interior render shows a window onto the exterior, link it to the exterior hub it belongs with. The film keeps weather and time consistent across the group (Part 3.4).
+- **[v2] Continuity groups**: if an interior render shows a window onto the exterior, link it to the exterior hub it belongs with. A linked interior then takes that exterior's exact world state, season, time, weather and precipitation, because you can see it through the glass. The link binds **inside one chapter only**: dragging a winter interior back into the monsoon chapter to satisfy a link would break the larger arc, so an interior with no partner in its own chapter simply keeps that chapter's state. Where an interior emphasis also applies, the weather through the glazing wins and the emphasis adds one room element beside it.
 
 ### 1.2 Direction — two routes
 
@@ -72,6 +72,17 @@ Open by asking for the renders, then run the questionnaire. Use tappable options
 | **[v2] Project stage** | Concept · Design development · Planning / DA · Construction docs · Completed |
 | **[v2] End use** | Client presentation · Planning or neighbour consultation · Website hero · Social (Reels/Shorts) · Awards submission · Marketing for a developer client |
 | **[v2] Interior emphasis** | Only asked if interior hubs exist: Daylight through the day · Night and artificial light · Seasonal view through openings · Lived-in moments |
+
+What each interior emphasis does **[v2]**:
+
+| Emphasis | Times it prefers | Artificial light | Room cue it bakes |
+|---|---|---|---|
+| Daylight through the day | morning, midday, afternoon | off | the patch of sunlight on the floor creeps slowly; dust motes in one shaft of sun |
+| Night and artificial light | dusk, night | on | one lamp pools warm light; a single candle or fireplace flame moves |
+| Seasonal view through openings | any | unchanged | unchanged: the weather cue already looks through the glazing |
+| Lived-in moments | afternoon, golden hour | unchanged | steam rises from one cup; a sheer curtain lifts and settles |
+
+An explicit design intent, a reference film's light arc, and a continuity link all outrank the emphasis on *timing*. The emphasis still dresses the room.
 
 End use changes defaults **[v2]**:
 - *Planning or neighbour consultation*: people off, weather restrained, no dramatic beat, no grade that darkens neighbouring buildings, disclaimer on every frame.
@@ -107,6 +118,17 @@ Do not watch casually. Measure. Report a table before proposing anything.
 7. **Audio**: detect whether there is narration or only an ambience bed. Most are ambience only, and it is much cheaper to replicate.
 8. **Scale rhythm**: how often the film changes scale. Never more than two consecutive shots at the same scale.
 9. **[v2] Inside/outside rhythm**: how the reference moves between exterior and interior. Most good ones go approach → threshold → dwell → detail → return. Report the pattern.
+
+**[v2] What the measurement then drives.** On Route A the plan is built from the reference, not merely compared to it. Resampled onto the chosen shot count, the reference sets:
+
+| Measured | Drives |
+|---|---|
+| Per-shot length (and the mean) | each clip's own duration, clamped to 2–10 s |
+| Inside/outside pattern | whether each shot is exterior or interior |
+| Per-shot scale | the scale of each shot, subject to the never-three-in-a-row rule, which still wins |
+| Light-arc **shape** (rising, falling, peak, trough, flat) | the time-of-day arc: a falling curve runs afternoon to night, a rising one dawn to afternoon |
+
+The arc's *shape* is structure and is matched. Its absolute brightness is colour and is not. Where the reference's scale changes conflict with the house rule of closing a chapter wide, the reference wins and the plan says so in a warning. A time arc the user pinned explicitly outranks the reference, and the plan says that too.
 
 **Critical caveat to surface to the user.** A reference film's colour grade belongs to *its* climate. A Japanese cedar forest is warm and olive; a Himalayan slate house under monsoon is cool and blue-grey; a Bay Area stucco house in July is bright and neutral. Match the reference's *structure* (shot length, rhythm, light arc, scale changes, inside/outside rhythm) and match the *colour* to the user's actual site and the designer's actual finishes. Say this out loud before grading.
 
@@ -216,7 +238,7 @@ If the user chose people, hold to these rules. They come from what actually surv
 ## PART 7 — VIDEO GENERATION
 
 ### 7.1 Settings
-- 5 seconds per clip, single start keyframe, hard cuts. No end keyframes unless doing a chained build.
+- 5 seconds per clip by default, single start keyframe, hard cuts. No end keyframes unless doing a chained build. **[v2]** On Route A each clip carries the reference's own shot length instead, clamped to 2–10 s, and any shot's length can be edited in the plan. A provider that only bills discrete lengths is given the nearest one it accepts, and the difference is reported rather than hidden.
 - Highest available resolution for the chosen ratio.
 - Batch 3–6 at a time.
 
@@ -384,6 +406,9 @@ Offer a logo upload for the end card.
 | Continuity | None | One world state per chapter across exterior and interior |
 | Sequencing | Scale pyramid | Plus approach, enter, dwell, detail, return |
 | QC | 5 metrics | Plus vertical drift, exposure and colour drift, text check, interior geometry list |
+| Reference film | Measured and described | Measured and then *applied*: shot length, inside/outside rhythm, scale changes and light-arc shape build the plan |
+| Clip length | Fixed at 5 s | Per shot, reference-driven and editable |
+| Interior emphasis | None | Four modes, each with its own preferred times, lighting state and room cue |
 | Branding | Title and logo | Plus stage stamp and disclaimer (Law 7) |
 | Deliverables | Film and crops | Plus stills pack and project record |
 | Roles | Director | Director, fidelity auditor, technical producer |

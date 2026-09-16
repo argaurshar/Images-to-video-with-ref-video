@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 
+from ... import config
 from ...models import ChapterState, HubImage, Intake, Project, Shot, ShotPlan
 from . import location as L
 
@@ -115,6 +116,121 @@ def _time_slots(intake: Intake) -> list[str]:
     return [intake.single_time or "afternoon"]
 
 
+# ---------------------------------------------------------------- reference
+
+def arc_shape(light_arc: list[float]) -> str:
+    """The shape of a reference film's light curve: rising, falling, peak
+    (bright in the middle), trough, or flat. The *shape* is structure and is
+    matched; the absolute brightness is colour and is not (Part 2 caveat)."""
+    if not light_arc or len(light_arc) < 3:
+        return "flat"
+    n = len(light_arc)
+    head = sum(light_arc[: max(1, n // 3)]) / max(1, n // 3)
+    mid = sum(light_arc[n // 3: 2 * n // 3]) / max(1, len(light_arc[n // 3: 2 * n // 3]))
+    tail = sum(light_arc[-max(1, n // 3):]) / max(1, n // 3)
+    span = max(light_arc) - min(light_arc)
+    if span < 0.08:
+        return "flat"
+    if mid > head + 0.05 and mid > tail + 0.05:
+        return "peak"
+    if mid < head - 0.05 and mid < tail - 0.05:
+        return "trough"
+    if tail > head + 0.05:
+        return "rising"
+    if head > tail + 0.05:
+        return "falling"
+    return "flat"
+
+
+ARC_SLOTS = {
+    "rising": ["dawn", "morning", "midday", "afternoon"],
+    "falling": ["afternoon", "golden_hour", "dusk", "night"],
+    "peak": ["dawn", "morning", "midday", "afternoon", "golden_hour", "dusk", "night"],
+    "trough": ["golden_hour", "dusk", "night", "dawn", "morning"],
+    "flat": [],
+}
+
+
+def reference_structure(ra, n: int) -> dict | None:
+    """Resample a measured reference film's structure onto n shots: shot
+    length, inside/outside rhythm, scale changes and light-arc shape. Nothing
+    about its colour or its climate is carried across."""
+    if ra is None or not ra.shots:
+        return None
+    src = ra.shots
+    pick = [min(len(src) - 1, int(i * len(src) / max(1, n))) for i in range(n)]
+    durations = [max(2.0, min(10.0, round(src[k].duration_s, 1))) for k in pick]
+    if ra.mean_shot_length_s:
+        fallback = max(2.0, min(10.0, round(ra.mean_shot_length_s, 1)))
+        durations = [d if d >= 2.0 else fallback for d in durations]
+    return {
+        "durations": durations,
+        "classes": [src[k].setting for k in pick],
+        "scales": [src[k].scale for k in pick],
+        "arc": arc_shape(ra.light_arc),
+        "mean_shot_length_s": ra.mean_shot_length_s,
+    }
+
+
+# ------------------------------------------------------- interior emphasis
+
+EMPHASIS = {
+    "daylight": {
+        "times": ["morning", "midday", "afternoon"],
+        "cue": "the patch of sunlight on the floor creeps slowly; dust motes drift in one shaft of sun",
+        "lights_on": False,
+    },
+    "night": {
+        "times": ["dusk", "night"],
+        "cue": "one lamp pools warm light; a single candle or fireplace flame moves; the garden is dark beyond the glass",
+        "lights_on": True,
+    },
+    "seasonal_view": {
+        "times": [],          # any time; the view through the opening is the subject
+        "cue": "",            # the weather cue already looks through the glazing
+        "lights_on": None,
+    },
+    "lived_in": {
+        "times": ["afternoon", "golden_hour"],
+        "cue": "steam rises from one cup; a sheer curtain lifts a few centimetres and settles",
+        "lights_on": None,
+    },
+}
+
+
+def apply_interior_emphasis(shot: Shot, emphasis: str | None, may_move_time: bool,
+                            linked: bool = False) -> str | None:
+    """Steer an interior shot by the emphasis the designer chose (spec 1.3).
+    Returns a note when the shot's time was moved, otherwise None.
+
+    A design intent or a reference light arc outranks this, so the caller
+    decides whether the time may move. On a shot linked to an exterior, the
+    weather seen through the glazing is not negotiable, so the emphasis adds
+    its room element beside that instead of replacing it.
+    """
+    rule = EMPHASIS.get(emphasis or "")
+    if not rule or shot.cls != "interior":
+        return None
+    if rule["cue"]:
+        if linked:
+            through_glass = shot.motion.split(";")[0].strip()
+            in_room = rule["cue"].split(";")[0].strip()
+            shot.motion = f"{through_glass}; {in_room}"
+        else:
+            shot.motion = rule["cue"]
+    if rule["lights_on"] is not None:
+        shot.state.lights_on = bool(rule["lights_on"])
+    note = None
+    if may_move_time and rule["times"] and shot.time not in rule["times"]:
+        old = shot.time
+        shot.time = rule["times"][shot.n % len(rule["times"])]
+        shot.state.time = shot.time
+        if shot.state.lights_on is False and shot.time in ("dusk", "night"):
+            shot.state.lights_on = True
+        note = f"Shot {shot.n}: interior time moved from {old} to {shot.time} by the '{emphasis}' emphasis."
+    return note
+
+
 def build_plan(p: Project) -> ShotPlan:
     intake = p.intake
     prof = p.location_profile or L.profile(intake.location)
@@ -129,10 +245,33 @@ def build_plan(p: Project) -> ShotPlan:
     n = max(1, intake.length_shots)
     warnings: list[str] = []
 
+    ref = reference_structure(p.reference, n) if intake.route == "reference" else None
+    if intake.route == "reference" and ref is None:
+        warnings.append("Reference route chosen but no reference film has been analysed; using the brief rules instead.")
+    # A reference that never goes inside (or never comes out) cannot supply an
+    # inside/outside rhythm for a project that has both. Following it literally
+    # would strand a whole class of the designer's renders, so keep the
+    # reference's lengths, scales and light arc, and let the house beats decide
+    # exterior against interior.
+    use_ref_classes = bool(ref)
+    if ref and both and len(set(ref["classes"])) == 1:
+        only = set(ref["classes"]).pop()
+        warnings.append(f"The reference film reads as {only} throughout, so it cannot supply an inside/outside "
+                        f"rhythm for a project with both. Its shot lengths, scales and light arc are still used; "
+                        f"exterior and interior follow the house beats.")
+        use_ref_classes = False
+
     seasons = [s for s in L.SEASON_ORDER if s in intake.seasons] or ["summer"]
     if "monsoon" in seasons and not prof.get("wet_months"):
         warnings.append("Monsoon chosen but the location profile has no wet season; the chapter will read as generic rain.")
     slots = _time_slots(intake)
+    if ref and intake.time_arc == "dawn_to_night":
+        arc_slots = ARC_SLOTS.get(ref["arc"] or "flat", [])
+        if arc_slots:
+            slots = arc_slots
+    elif ref and ref["arc"] not in ("flat", ""):
+        warnings.append(f"The reference's light curve is {ref['arc']}, but the time arc is pinned to "
+                        f"'{intake.time_arc}'; the pinned choice wins.")
 
     # chapters: seasons in calendar order; a single season is chaptered by time
     if len(seasons) > 1:
@@ -160,6 +299,10 @@ def build_plan(p: Project) -> ShotPlan:
         if heavy_ch is not None:
             break
 
+    shot_seconds = float(config.CLIP_SECONDS)
+    if ref and ref["mean_shot_length_s"]:
+        warnings.append(f"Shot lengths follow the reference (mean {ref['mean_shot_length_s']}s per shot).")
+
     shots: list[Shot] = []
     counters = {"exterior": 0, "interior": 0}
     idx = 0
@@ -167,6 +310,18 @@ def build_plan(p: Project) -> ShotPlan:
     beats_all = _beats(total, both)
     intents = list(intake.design_intents)
     used_intents: set[int] = set()
+    # When the film is chaptered by time (a single season), an intent that names
+    # a time belongs in the chapter that already holds it, rather than fighting
+    # that chapter's fixed time.
+    intent_chapter: dict[int, int] = {}
+    for ii, text in enumerate(intents):
+        want = _time_in_text(text or "")
+        if not want:
+            continue
+        for ci_, (_, fixed_t) in enumerate(chapters):
+            if fixed_t == want:
+                intent_chapter[ii] = ci_
+                break
     for ci, ((season, fixed_time), k) in enumerate(zip(chapters, per)):
         heavy_here = ci == heavy_ch and intake.end_use != "planning_consultation" and intake.mood != "serene"
         weather, precip = L.season_weather(season, prof, heavy=False)
@@ -183,14 +338,26 @@ def build_plan(p: Project) -> ShotPlan:
                 t = slots[min(len(slots) - 1, int(idx * len(slots) / max(1, total)))]
             beat = beats_all[idx]
             cls = "interior" if (both and beat in ("dwell", "detail")) else "exterior"
+            if use_ref_classes:
+                cls = ref["classes"][idx]          # match the reference's inside/outside rhythm
             if cls not in classes:
                 cls = classes[0]
             # the pyramid decides the scale; the beat label follows it
             scale = scales[j]
+            if ref and ref["scales"][idx] in ("wide", "medium", "detail", "macro"):
+                scale = ref["scales"][idx]         # match the reference's scale changes
             if beat in ("dwell", "detail"):
                 beat = "detail" if scale == "detail" else "dwell"
             hubs = hubs_by_cls[cls]
-            hub = hubs[counters[cls] % len(hubs)]
+            hub = None
+            if cls == "interior" and shots:
+                prev_ext = next((x for x in reversed(shots) if x.cls == "exterior"), None)
+                if prev_ext:
+                    grp = p.hub(prev_ext.source_hub_id).continuity_group
+                    if grp:
+                        hub = next((h for h in hubs if h.continuity_group == grp), None)
+            if hub is None:
+                hub = hubs[counters[cls] % len(hubs)]
             counters[cls] += 1
             heavy = bool(heavy_here and scale == "medium" and not any(s.heavy for s in shots))
             w, pr = L.season_weather(season, prof, heavy=True) if heavy else (weather, precip)
@@ -210,13 +377,15 @@ def build_plan(p: Project) -> ShotPlan:
             for ii, text in enumerate(intents):
                 if ii in used_intents:
                     continue
+                if ii in intent_chapter and intent_chapter[ii] != ci:
+                    continue          # this intent waits for its own time chapter
                 wants_int = bool(INTERIOR_WORDS.search(text))
                 if (wants_int and cls == "interior") or (not wants_int and cls == "exterior"):
                     if scale in ("medium", "detail") or (k == 1):
                         intent = text
                         used_intents.add(ii)
                         want_t = _time_in_text(text)
-                        if want_t and want_t != t and not fixed_time:
+                        if want_t and want_t != t and (not fixed_time or ii not in intent_chapter):
                             t = want_t
                             lights_on = t in ("dusk", "night", "dawn") or (cls == "interior" and t == "golden_hour")
                             state = ChapterState(season=season, time=t, weather=w, lights_on=lights_on, month=month, precipitation=pr)
@@ -226,13 +395,32 @@ def build_plan(p: Project) -> ShotPlan:
                 n=idx + 1, cls=cls, chapter=ci + 1, season=season, time=t, scale=scale,
                 framing=FRAMING[(cls, scale)], source_hub_id=hub.id,
                 motion=CUES[cls][_cue_key(season, w)], human_beat=human, design_intent=intent,
-                beat=beat, heavy=heavy, state=state,
+                beat=beat, heavy=heavy, duration=(ref["durations"][idx] if ref else shot_seconds), state=state,
                 sun_side=L.sun_side(hub.camera_faces, t, hemi) if cls == "exterior" else
                 L.sun_side(hub.camera_faces, t, hemi).replace("behind the building", "through the far opening").replace("behind the camera", "through the opening behind camera"),
             ))
             idx += 1
 
+    linked_ids = _link_continuity(shots, p, hemi, warnings)
+    if intake.interior_emphasis and any(s.cls == "interior" for s in shots):
+        for sh in shots:
+            if sh.cls != "interior":
+                continue
+            # a design intent, the reference's light arc, or a continuity link
+            # all outrank the emphasis on timing; the emphasis still dresses the room
+            may_move = not sh.design_intent and not ref and sh.n not in linked_ids
+            note = apply_interior_emphasis(sh, intake.interior_emphasis, may_move, linked=sh.n in linked_ids)
+            if note:
+                warnings.append(note)
+                hub_for = p.hub(sh.source_hub_id)
+                sh.sun_side = L.sun_side(hub_for.camera_faces, sh.time, hemi).replace(
+                    "behind the building", "through the far opening").replace(
+                    "behind the camera", "through the opening behind camera")
     _break_runs(shots)
+    if ref and shots:
+        if intake.time_arc == "dawn_to_night" and ARC_SLOTS.get(ref["arc"] or "flat"):
+            warnings.append(f"Time arc follows the reference's light curve ({ref['arc']}): "
+                            f"{shots[0].time} to {shots[-1].time}.")
     for ii, text in enumerate(intents):
         if ii not in used_intents and shots:
             # attach to the closest unassigned shot of any class
@@ -241,10 +429,59 @@ def build_plan(p: Project) -> ShotPlan:
                     s.design_intent = text
                     used_intents.add(ii)
                     break
-    plan = ShotPlan(shots=shots, warnings=warnings)
-    plan.warnings += validate(plan, p)
+    plan = ShotPlan(shots=shots, warnings=warnings, reference_driven=bool(ref))
+    plan.warnings += validate(plan, p, reference_driven=bool(ref))
     plan.rationale = _rationale(chapters, both, intake)
     return plan
+
+
+def _link_continuity(shots: list[Shot], p: Project, hemi: str, warnings: list[str]) -> None:
+    """Spec 1.1 and 3.4. An interior render linked to an exterior one looks out
+    at that exterior, so it carries the identical world state: same season,
+    time, weather and precipitation. Otherwise the window shows rain while the
+    room shows sunshine.
+
+    A link binds only inside one chapter. A chapter is a season, and dragging a
+    winter interior back to the monsoon chapter to satisfy a link would break
+    the bigger arc, so an interior with no partner in its own chapter simply
+    keeps that chapter's state.
+
+    Returns the shot numbers that were bound.
+    """
+    bound: set[int] = set()
+    groups = {h.id: h.continuity_group for h in p.hubs}
+    linked_groups = {g for g in groups.values() if g}
+    seen_ext = {groups.get(x.source_hub_id) for x in shots if x.cls == "exterior"}
+    for g in sorted(linked_groups - seen_ext):
+        if any(groups.get(x.source_hub_id) == g for x in shots):
+            warnings.append(f"Continuity group '{g}' has no exterior shot anywhere in the film, "
+                            f"so its interior is not tied to any weather.")
+    for i, sh in enumerate(shots):
+        grp = groups.get(sh.source_hub_id)
+        if sh.cls != "interior" or not grp:
+            continue
+        partner = next((shots[j] for j in range(i - 1, -1, -1)
+                        if shots[j].chapter == sh.chapter and shots[j].cls == "exterior"
+                        and groups.get(shots[j].source_hub_id) == grp), None)
+        if partner is None:
+            partner = next((x for x in shots[i + 1:]
+                            if x.chapter == sh.chapter and x.cls == "exterior"
+                            and groups.get(x.source_hub_id) == grp), None)
+        if partner is None:
+            continue
+        if (sh.state.time, sh.state.weather) != (partner.state.time, partner.state.weather):
+            warnings.append(f"Shot {sh.n} takes its state from shot {partner.n} (continuity group '{grp}'): "
+                            f"{partner.state.season} {partner.state.time}, {partner.state.weather}.")
+        sh.season, sh.time = partner.state.season, partner.state.time
+        sh.state = partner.state.model_copy(deep=True)
+        sh.state.lights_on = partner.state.lights_on or sh.time in ("dusk", "night", "dawn")
+        sh.motion = CUES["interior"][_cue_key(sh.season, sh.state.weather)]
+        hub_for = p.hub(sh.source_hub_id)
+        sh.sun_side = L.sun_side(hub_for.camera_faces, sh.time, hemi).replace(
+            "behind the building", "through the far opening").replace(
+            "behind the camera", "through the opening behind camera")
+        bound.add(sh.n)
+    return bound
 
 
 def _break_runs(shots: list[Shot]) -> None:
@@ -272,7 +509,7 @@ def _break_runs(shots: list[Shot]) -> None:
                     break
 
 
-def validate(plan: ShotPlan, p: Project) -> list[str]:
+def validate(plan: ShotPlan, p: Project, reference_driven: bool = False) -> list[str]:
     w: list[str] = []
     shots = plan.shots
     for i in range(2, len(shots)):
@@ -297,9 +534,29 @@ def validate(plan: ShotPlan, p: Project) -> list[str]:
             if ch == 1 and len(chs) == 2:
                 continue  # opening wide wins over closing wide in a two-shot first chapter
             if len(chs) > 1 and chs[-1].scale not in ("wide", "aerial"):
-                w.append(f"Chapter {ch} does not close on its widest shot.")
+                if reference_driven:
+                    w.append(f"Chapter {ch} closes on its {chs[-1].scale} shot, following the reference's scale "
+                             f"changes rather than the house rule of closing wide.")
+                else:
+                    w.append(f"Chapter {ch} does not close on its widest shot.")
     if sum(1 for s in shots if s.heavy) > 1:
         w.append("More than one heavy weather beat.")
+    groups = {h.id: h.continuity_group for h in p.hubs}
+    for i, sh in enumerate(shots):
+        grp = groups.get(sh.source_hub_id)
+        if sh.cls != "interior" or not grp:
+            continue
+        partner = next((shots[j] for j in range(i - 1, -1, -1)
+                        if shots[j].chapter == sh.chapter and shots[j].cls == "exterior"
+                        and groups.get(shots[j].source_hub_id) == grp), None)
+        if partner and (sh.state.time, sh.state.weather) != (partner.state.time, partner.state.weather):
+            w.append(f"Continuity break: shot {sh.n} is linked to shot {partner.n} but shows "
+                     f"{sh.state.time}/{sh.state.weather} against {partner.state.time}/{partner.state.weather}.")
+    used_hubs = {s.source_hub_id for s in shots}
+    for cls_ in ("exterior", "interior"):
+        owned = [h for h in p.hubs if h.cls == cls_]
+        if owned and not any(h.id in used_hubs for h in owned):
+            w.append(f"No shot uses any of the {len(owned)} {cls_} render(s) you uploaded.")
     unassigned = [t for t in p.intake.design_intents if t and t not in {s.design_intent for s in shots}]
     if unassigned:
         w.append("Design intents without a shot: " + "; ".join(unassigned))

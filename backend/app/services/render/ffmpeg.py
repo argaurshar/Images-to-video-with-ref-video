@@ -119,7 +119,7 @@ def disclaimer_png(b: Branding, aspect: str, out: Path) -> Path:
     return out
 
 
-def ambience_bed(clips: list[Clip], out: Path, beds: dict[str, str], seconds_each: float) -> None:
+def ambience_bed(clips: list[Clip], out: Path, beds: dict[str, str]) -> None:
     """One audio segment per clip (room tone for interiors, outdoor bed for
     exteriors), short fades so cuts do not click, then a score mixed low if
     one was uploaded. Synthetic beds are placeholders: upload real ones."""
@@ -129,7 +129,7 @@ def ambience_bed(clips: list[Clip], out: Path, beds: dict[str, str], seconds_eac
     for i, c in enumerate(clips):
         seg = tmpdir / f"seg_{i:03d}.wav"
         src = beds.get(c.cls)
-        d = seconds_each
+        d = max(0.5, float(c.duration))
         if src and Path(src).exists():
             inp = ["-stream_loop", "-1", "-i", src]
             af = f"atrim=0:{d},afade=t=in:d=0.3,afade=t=out:st={d-0.3}:d=0.3"
@@ -143,7 +143,7 @@ def ambience_bed(clips: list[Clip], out: Path, beds: dict[str, str], seconds_eac
     lst.write_text("".join(f"file '{s.resolve()}'\n" for s in segs))
     bed = tmpdir / "bed.wav"
     run([ffmpeg(), "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(bed)])
-    total = seconds_each * len(clips)
+    total = sum(max(0.5, float(c.duration)) for c in clips)
     score = beds.get("score")
     if score and Path(score).exists():
         run([ffmpeg(), "-y", "-loglevel", "error", "-i", str(bed), "-stream_loop", "-1", "-i", score, "-t", f"{total}",
@@ -198,10 +198,10 @@ def final_render(p: Project, clips: list[Clip], out_dir: Path) -> tuple[Path, di
         norm.append(dst)
     video = out_dir / "film_video.mp4"
     concat(norm, video)
-    total = config.CLIP_SECONDS * len(clips)
+    total = sum(max(0.5, float(c.duration)) for c in clips)
 
     audio = out_dir / "film_audio.wav"
-    ambience_bed(clips, audio, {k: str(abs_path(v)) for k, v in p.audio_beds.items()}, config.CLIP_SECONDS)
+    ambience_bed(clips, audio, {k: str(abs_path(v)) for k, v in p.audio_beds.items()})
 
     b = p.branding
     inputs = ["-i", str(video), "-i", str(audio)]

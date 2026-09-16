@@ -78,9 +78,15 @@ class FreepikProvider(Provider):
         self._download(urls[0], out)
         return GenResult(path=out, provider_id=urls[0], cost=config.IMAGE_COST)
 
+    # the platform bills per discrete clip length, so an arbitrary request is
+    # snapped to the nearest one it accepts and the caller is told
+    SUPPORTED_SECONDS = (5, 10)
+
     def generate_clip(self, still: Path, prompt: str, negative: str, seconds: float, aspect: str, out: Path) -> GenResult:
+        billed = min(self.SUPPORTED_SECONDS, key=lambda v: abs(v - seconds))
         payload = {"image": _b64_image(still, aspect), "prompt": prompt, "negative_prompt": negative,
-                   "duration": str(int(seconds)), "cfg_scale": 0.5}
+                   "duration": str(billed), "cfg_scale": 0.5}
         urls = self._submit_and_wait(config.FREEPIK_VIDEO_PATH, payload)
         self._download(urls[0], out)
-        return GenResult(path=out, provider_id=urls[0], cost=config.VIDEO_COST)
+        note = "" if abs(billed - seconds) < 0.05 else f"asked for {seconds:.1f}s, provider billed {billed}s"
+        return GenResult(path=out, provider_id=urls[0], cost=config.VIDEO_COST * (billed / 5.0), note=note)

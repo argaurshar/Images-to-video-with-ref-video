@@ -91,6 +91,7 @@ function rIntake() {
           <label class="f" style="min-width:90px">camera faces<select data-h="${h.id}" data-k="camera_faces"><option value="">not stated</option>${["N", "NE", "E", "SE", "S", "SW", "W", "NW"].map(d => `<option ${h.camera_faces === d ? "selected" : ""}>${d}</option>`).join("")}</select></label>
         </div>
         <label class="f">label<input data-h="${h.id}" data-k="label" value="${esc(h.label)}"></label>
+        ${h.cls === "interior" ? `<label class="f">looks out at (shares that view's weather and time)<select data-link="${h.id}"><option value="">not linked</option>${(P.hubs || []).filter(x => x.cls === "exterior").map(x => `<option value="${x.id}" ${h.continuity_group && h.continuity_group === x.continuity_group ? "selected" : ""}>${esc(x.label || x.id)}</option>`).join("")}</select></label>` : ""}
         <label class="f">materials and finishes, by name<textarea data-h="${h.id}" data-k="materials" placeholder="e.g. board-formed concrete, spotted gum battens, zinc standing seam">${esc(h.materials)}</textarea></label>
         <label class="f">fixed elements to protect (the prompt's sacred list)<textarea data-h="${h.id}" data-k="elements" placeholder="e.g. two levels, four windows per level, entry canopy, retaining wall left, road along the front, two oaks">${esc(h.elements)}</textarea></label>
         <div class="muted">detected: ${esc(h.detected.time_of_day)} · ${esc(h.detected.colour_temperature)} · sky ${fmt(h.detected.sky_fraction)} · ${esc(h.detected.aspect)} · ${h.detected.lights_on ? "lights on" : "lights off"} ${h.detected.climate_hint ? "· " + esc(h.detected.climate_hint) : ""}</div>
@@ -135,6 +136,12 @@ function rIntake() {
   drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); }; drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); upload(e.dataTransfer.files); };
   el("main").querySelectorAll("[data-h]").forEach(inp => inp.onchange = () => busy(async () => { await api(`/api/projects/${P.id}/hubs/${inp.dataset.h}`, { method: "PATCH", body: { [inp.dataset.k]: inp.value } }); P = await api(`/api/projects/${P.id}`); renderSpend(); }));
+  el("main").querySelectorAll("[data-link]").forEach(sel => sel.onchange = () => busy(async () => {
+    const interiorId = sel.dataset.link, exteriorId = sel.value;
+    await api(`/api/projects/${P.id}/hubs/${interiorId}`, { method: "PATCH", body: { continuity_group: exteriorId || "" } });
+    if (exteriorId) await api(`/api/projects/${P.id}/hubs/${exteriorId}`, { method: "PATCH", body: { continuity_group: exteriorId } });
+    await reload();
+  }));
   el("main").querySelectorAll("[data-del]").forEach(b => b.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/hubs/${b.dataset.del}`, { method: "DELETE" }); await reload(); }));
   el("seasons").querySelectorAll(".chip").forEach(c => c.onclick = () => c.classList.toggle("on"));
   el("save_intake").onclick = () => busy(async () => {
@@ -190,6 +197,7 @@ function rPlan() {
       <td><select data-k="time">${opts(TIMES, s.time)}</select></td>
       <td><select data-k="scale">${opts(SCALES, s.scale)}</select></td>
       <td><select data-k="source_hub_id">${(P.hubs || []).filter(h => h.cls === s.cls).map(h => `<option value="${h.id}" ${h.id === s.source_hub_id ? "selected" : ""}>${esc(h.label || h.id)}</option>`).join("")}</select></td>
+      <td style="width:72px"><input data-k="duration" type="number" step="0.5" min="1" max="15" value="${s.duration}"></td>
       <td><input data-k="motion" value="${esc(s.motion)}"></td>
       <td><input data-k="human_beat" value="${esc(s.human_beat)}"></td>
       <td><input data-k="design_intent" value="${esc(s.design_intent)}"></td>
@@ -199,8 +207,9 @@ function rPlan() {
     <h2>Shot plan</h2><p class="lead">Rules: scale pyramid, one arc per axis, chapter closers on the widest shot, human beats at the edges, one heavy weather beat, approach → enter → dwell → detail → return when both classes exist. Edit anything, then approve. Nothing is generated until you do.</p>
     <div class="card"><div class="row"><button class="btn" id="gen">Generate plan</button>${shots.length ? `<button class="btn secondary" id="saveplan">Save edits</button><button class="btn" id="approve" ${plan.approved ? "disabled" : ""}>${plan.approved ? "Approved" : "Approve plan"}</button>` : ""}</div>
       ${plan.rationale ? `<p class="muted" style="margin-top:10px">${esc(plan.rationale)}</p>` : ""}
+      ${shots.length ? `<p class="muted">${plan.reference_driven ? '<span class="tag">structure from the reference film</span> ' : ""}${shots.length} shots · ${shots.reduce((a, x) => a + x.duration, 0).toFixed(1)}s total</p>` : ""}
       ${plan.warnings.length ? `<ul class="warn-list">${plan.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}</div>
-    ${shots.length ? `<div class="card" style="overflow:auto"><table><tr><th>#</th><th>class</th><th>season</th><th>time</th><th>scale</th><th>source render</th><th>motion cue (light only)</th><th>human beat</th><th>design intent</th><th>chapter state</th><th></th></tr>${rows}</table></div>` : ""}`;
+    ${shots.length ? `<div class="card" style="overflow:auto"><table><tr><th>#</th><th>class</th><th>season</th><th>time</th><th>scale</th><th>source render</th><th>secs</th><th>motion cue (light only)</th><th>human beat</th><th>design intent</th><th>chapter state</th><th></th></tr>${rows}</table></div>` : ""}`;
   el("gen").onclick = () => busy(async () => { await api(`/api/projects/${P.id}/plan/generate`, { method: "POST" }); await reload(); });
   const sv = el("saveplan"); if (sv) sv.onclick = () => busy(async () => {
     const edited = shots.map(s => { const tr = el("main").querySelector(`tr[data-n="${s.n}"]`); const c = structuredClone(s); tr.querySelectorAll("[data-k]").forEach(i => c[i.dataset.k] = i.value); c.state.season = c.season; c.state.time = c.time; return c; });

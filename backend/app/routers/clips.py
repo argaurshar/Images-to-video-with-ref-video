@@ -39,7 +39,7 @@ def _gen_clip(p, shot, still, attempt: int, motion_override: str | None = None) 
     cid = new_id("clp")
     out = project_dir(p.id) / "clips" / f"{cid}.mp4"
     try:
-        res = prov.generate_clip(abs_path(still.path), prompt, neg, config.CLIP_SECONDS, p.intake.aspect, out)
+        res = prov.generate_clip(abs_path(still.path), prompt, neg, shot.duration, p.intake.aspect, out)
     except ProviderError as e:
         raise HTTPException(502, f"provider error: {e}")
     costs.charge(p, "clip", res.cost, f"shot {shot.n} attempt {attempt} ({prov.name})")
@@ -47,7 +47,7 @@ def _gen_clip(p, shot, still, attempt: int, motion_override: str | None = None) 
     bright = video_first_frame(out, thumb)
     c = Clip(id=cid, shot_n=shot.n, cls=shot.cls, source_hub_id=shot.source_hub_id, still_id=still.id, attempt=attempt,
              path=rel(out), thumb=rel(thumb), prompt=prompt, negative=neg, provider=prov.name, provider_id=res.provider_id,
-             cost=res.cost, duration=config.CLIP_SECONDS, mean_brightness=round(bright, 3))
+             cost=res.cost, duration=shot.duration, mean_brightness=round(bright, 3))
     expects = shot.state.precipitation
     c.qc = run_qc(out, shot.cls, expects_particles=expects)  # Law 4: measure before showing
     if not c.qc.passed:

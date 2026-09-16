@@ -79,6 +79,7 @@ class Shot(BaseModel):
     design_intent: str = ""
     beat: str = ""  # approach / enter / dwell / detail / return / closer
     heavy: bool = False
+    duration: float = 5.0  # seconds; reference-driven on Route A
     state: ChapterState
     sun_side: str = "camera-left"
     locked: bool = False
@@ -86,6 +87,7 @@ class Shot(BaseModel):
 
 class ShotPlan(BaseModel):
     approved: bool = False
+    reference_driven: bool = False
     shots: list[Shot] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     rationale: str = ""
