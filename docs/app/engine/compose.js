@@ -72,46 +72,80 @@ const SANS = 'system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif
 
 const spaced = (s) => (s && s.length < 40 ? s.toUpperCase().split("").join(" ") : s);
 
-function centreText(ctx, text, x, y, font, colour, alpha = 1) {
-  if (!text) return 0;
+function text(ctx, str, x, y, font, colour, alpha, align = "left", baseline = "alphabetic") {
+  if (!str) return;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.font = font;
   ctx.fillStyle = colour;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, x, y);
+  ctx.textAlign = align;
+  ctx.textBaseline = baseline;
+  ctx.fillText(str, x, y);
   ctx.restore();
-  return 1;
 }
 
-/** Paint the title card content onto a context sized (w, h). `alpha` fades the
-    whole card, which is how the minimal style sits over the footage. */
-export function paintTitle(ctx, b, w, h, which = "start", alpha = 1) {
-  const k = w / 1920;
-  const cx = w / 2;
-  let y = h * (which === "start" ? 0.42 : 0.40);
-  const name = which === "start" ? (b.project_name || "") : (b.practice_name || "");
-  centreText(ctx, name, cx, y, `${Math.round(62 * k)}px ${SERIF}`, "#ffffff", alpha);
-  y += 62 * k * 1.5;
-  if (which === "start") {
-    centreText(ctx, spaced(b.practice_name || ""), cx, y, `${Math.round(24 * k)}px ${SANS}`, "#e8e2d6", alpha * 0.92);
-    y += 24 * k * 2;
-    const line = [b.location_line, b.year].filter(Boolean).join("  ·  ");
-    centreText(ctx, line, cx, y, `${Math.round(22 * k)}px ${SANS}`, "#cfc7b8", alpha * 0.85);
-    y += 22 * k * 2;
-    centreText(ctx, b.subtitle || "", cx, y, `${Math.round(22 * k)}px ${SANS}`, "#cfc7b8", alpha * 0.8);
+/** The spec's card scale: sizes are given for a 1080-wide portrait frame, and
+    a 16:9 frame uses its height so the title reads the same size either way. */
+const cardScale = (w, h) => (Math.abs(w / h - 16 / 9) < 0.05 ? h / 1080 : w / 1080);
+
+/** Paint the title card content onto a context sized (w, h), following the
+    spec's Part 11 defaults: spaced uppercase title at 88px on a 1080-wide
+    frame, a smaller subtitle above, a spaced location line near the foot,
+    small credits in the top corners at 60%, the disclaimer low and centred,
+    the stage stamp boxed bottom-right, and the logo below the title on the end
+    card. `alpha` fades the whole card, which is how the minimal style sits
+    over footage. `logo` is a decoded Image or null. */
+export function paintTitle(ctx, b, w, h, which = "start", alpha = 1, logo = null) {
+  const s = cardScale(w, h);
+  const cx = w / 2, cy = h / 2;
+  const white = "#ffffff", dim = "#e8e2d6";
+  const title = which === "start" ? (b.project_name || "Untitled project") : (b.practice_name || b.project_name || "");
+  if (b.subtitle && which === "start") {
+    text(ctx, b.subtitle, cx, cy - 110 * s, `${Math.round(34 * s)}px ${SANS}`, dim, alpha * 0.6, "center", "middle");
   }
-  if (b.stage_stamp) {
-    centreText(ctx, spaced(b.stage_stamp), cx, h * 0.80, `${Math.round(20 * k)}px ${SANS}`, "#d9b46a", alpha * 0.95);
+  text(ctx, spaced(title), cx, cy - 10 * s, `${Math.round(88 * s)}px ${SERIF}`, white, alpha * 0.92, "center", "middle");
+  if (b.location_line) {
+    text(ctx, spaced(b.location_line), cx, h - 140 * s, `${Math.round(26 * s)}px ${SANS}`, dim, alpha * 0.6, "center", "middle");
   }
+  // credits in the top corners at 60%
+  if (b.practice_name && which === "start") text(ctx, b.practice_name, 48 * s, 48 * s, `${Math.round(26 * s)}px ${SANS}`, dim, alpha * 0.6, "left", "top");
+  if (b.year) text(ctx, String(b.year), w - 48 * s, 48 * s, `${Math.round(26 * s)}px ${SANS}`, dim, alpha * 0.6, "right", "top");
   // The disclaimer is what keeps a visualisation from being read as evidence,
   // so it is drawn on the card itself and not left to a caption someone strips.
-  centreText(ctx, b.disclaimer || "", cx, h * 0.88, `${Math.round(19 * k)}px ${SANS}`, "#b9b2a5", alpha * 0.9);
+  if (b.disclaimer) text(ctx, b.disclaimer, cx, h - 96 * s, `${Math.round(22 * s)}px ${SANS}`, white, alpha * 0.55, "center", "middle");
+  if (b.stage_stamp) {
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.font = `${Math.round(28 * s)}px ${SANS}`;
+    const label = b.stage_stamp.toUpperCase();
+    const tw = ctx.measureText(label).width;
+    ctx.strokeStyle = white; ctx.lineWidth = Math.max(2, 2 * s);
+    ctx.strokeRect(w - tw - 80 * s, h - 90 * s, tw + 40 * s, 50 * s);
+    ctx.fillStyle = white; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(label, w - tw - 60 * s, h - 65 * s);
+    ctx.restore();
+  }
+  if (which === "end" && logo && logo.naturalWidth) {
+    const lw = Math.round(w * 0.18), lh = Math.round((logo.naturalHeight * lw) / logo.naturalWidth);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(logo, Math.round((w - lw) / 2), Math.round(cy + 80 * s), lw, lh);
+    ctx.restore();
+  }
+}
+
+/** The solid card style: paint the background first, then the same content. */
+export function paintSolidCard(ctx, b, w, h, which, alpha, logo) {
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#0e0e10";
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+  paintTitle(ctx, b, w, h, which, alpha, logo);
 }
 
 /** The persistent lower-third variant, and the every-frame disclaimer. */
-export function paintOverlay(ctx, b, w, h, showLowerThird) {
+export function paintOverlay(ctx, b, w, h, showLowerThird, everyFrame) {
   const k = w / 1920;
   if (showLowerThird && (b.project_name || b.practice_name)) {
     ctx.save();
@@ -126,14 +160,16 @@ export function paintOverlay(ctx, b, w, h, showLowerThird) {
     ctx.fillText(spaced(b.practice_name || ""), 70 * k, h - 62 * k);
     ctx.restore();
   }
-  if (b.disclaimer_every_frame && b.disclaimer) {
+  if (everyFrame && b.disclaimer) {
+    // lower corner at 50%, as the spec has it for planning and consultation films
+    const s = cardScale(w, h);
     ctx.save();
-    ctx.globalAlpha = 0.72;
-    ctx.textAlign = "right";
+    ctx.globalAlpha = 0.5;
+    ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#ffffff";
-    ctx.font = `${Math.round(17 * k)}px ${SANS}`;
-    ctx.fillText(b.disclaimer, w - 40 * k, h - 32 * k);
+    ctx.font = `${Math.round(22 * s)}px ${SANS}`;
+    ctx.fillText(b.disclaimer, 40 * s, h - 40 * s);
     ctx.restore();
   }
 }

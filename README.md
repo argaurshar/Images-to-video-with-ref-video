@@ -71,6 +71,17 @@ so a 45-second film takes about 45 seconds, and the tab has to stay in front.
 A background tab freezes the picture while the clock runs, so the tool discards
 that render rather than hand you a frozen film.
 
+### Moving projects around
+
+Every project can be **exported as one ZIP** (the document plus every render,
+still, clip and film) from the project list or the render page, and imported
+on any machine from the start screen. **Duplicate** keeps the renders, intake,
+plan and chosen heroes and starts stills and clips fresh, which is the spec's
+"reuse across films": a DA film and a CD film of the same building share the
+rediscovery. A batch run twice makes only what is missing, and two consecutive
+provider failures stop it rather than walking the rest of the plan into the
+same wall.
+
 ## Run it as a server
 
 The app runs unchanged inside a **GitHub Codespace**, which is GitHub's own

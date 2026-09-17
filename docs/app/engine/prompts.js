@@ -55,10 +55,13 @@ export function stillPrompt(p, shot, hub, corrections = "") {
   if (p.intake.mood === "serene" && shot.cls === "exterior") cues = cues.split(",")[0] + ", nothing else moving";
   const people = peopleLine(p, shot);
   const lights = st.lights_on ? "on" : "off";
+  // the project type, when stated, names what the model is looking at; it is
+  // one word in the first sentence and never a licence to redesign
+  const kind = (p.intake.project_type || "").replace(/_/g, " ").trim();
   let txt;
   if (shot.cls === "exterior") {
     txt =
-      "Take the attached original architectural render and change ONLY the season, weather and lighting. " +
+      `Take the attached original architectural render${kind ? " of a " + kind : ""} and change ONLY the season, weather and lighting. ` +
       "Keep the identical camera, the identical framing of the building, and the identical site layout. " +
       "This is a season change, not a redesign.\n\n" +
       `The building must stay exactly where it is in the frame and exactly as built: ${elements}. ` +
@@ -77,7 +80,7 @@ export function stillPrompt(p, shot, hub, corrections = "") {
   } else {
     const through = st.time !== "night" ? st.weather : "darkness with the garden faintly lit";
     txt =
-      "Take the attached original interior render and change ONLY the light, the time of day, the weather and " +
+      `Take the attached original interior render${kind ? " of a " + kind : ""} and change ONLY the light, the time of day, the weather and ` +
       "season visible through the openings, and the state of the artificial lighting. Keep the identical camera, " +
       "the identical framing of the room, and the identical layout. This is a lighting change, not a redesign.\n\n" +
       `The room must stay exactly as designed: ${elements}. Finishes and fittings, by name: ${materials}.\n\n` +

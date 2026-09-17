@@ -9,14 +9,15 @@
    BS.1770 integrated measurement, and the container is whatever the browser
    will encode. */
 
-import { RES, OUTPUT_FPS, canvasOf, cropRect, paintTitle, paintOverlay, canvasToBlob } from "./compose.js";
-import { record, extFor } from "./recorder.js";
+import { RES, OUTPUT_FPS, canvasOf, cropRect, paintTitle, paintSolidCard, paintOverlay, blobToImage } from "./compose.js";
+import { record } from "./recorder.js";
 import { sampleFrames, element as loadVideo, durationOf } from "./video.js";
 import * as I from "./imaging.js";
 import { makeZip, bytesOf, textBytes } from "./zip.js";
 
-const CARD_SECONDS = 2.5;
-const FADE = 0.4;
+const CARD_SECONDS = 3.0;
+const FADE_IN = 1.2;
+const FADE_OUT = 3.0;
 
 /** Shared with the analysis side so a container that states no duration, which
     is every WebM this app records, is measured once and the same way. */
@@ -26,67 +27,134 @@ async function videoFor(blob) {
   return v;
 }
 
-/** An ambience bed. A designer's own recording is always better and is used
-    when one is uploaded; otherwise this is filtered noise shaped into a slow
-    swell, which is a placeholder and is labelled as one. */
-async function buildAudio(ctx, seconds, beds) {
+/** A synthetic bed: filtered noise. Brown and louder for outdoors, pink and
+    quieter for a room. A placeholder, labelled as one; a designer's own
+    recording is always better and is used whenever one is uploaded. */
+function noiseBuffer(ctx, kind) {
+  const len = Math.ceil(ctx.sampleRate * 4);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, last = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    if (kind === "exterior") {
+      last = (last + 0.02 * w) / 1.02;           // brown
+      d[i] = last * 3.5;
+    } else {
+      b0 = 0.99765 * b0 + w * 0.0990460;         // pink (Paul Kellet's filter)
+      b1 = 0.96300 * b1 + w * 0.2965164;
+      b2 = 0.57000 * b2 + w * 1.0526913;
+      d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.11;
+    }
+  }
+  return buf;
+}
+
+/** The soundtrack, per spec 12.5: an exterior bed under exterior shots, a
+    quieter room tone under interiors with the exterior bed kept low behind
+    the glass, short crossfades at every cut so nothing clicks, and a score
+    underneath at roughly a third of the bed. Everything is scheduled on one
+    clock so it lands exactly on the picture's cuts.
+
+    `segments` is [{cls, t0, t1}] in film time. Returns the destination node
+    and whether any of the sound was the designer's own. */
+async function buildAudio(ctx, total, segments, beds) {
   const dest = ctx.createMediaStreamDestination();
   const master = ctx.createGain();
-  master.gain.value = 1;
   master.connect(dest);
 
+  const decoded = {};
   let usedUploaded = false;
-  for (const [kind, blob] of Object.entries(beds)) {
+  for (const kind of ["exterior", "interior", "score"]) {
+    if (!beds[kind]) continue;
     try {
-      const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.loop = true;
-      const g = ctx.createGain();
-      // a score sits under the ambience rather than over it
-      g.gain.value = kind === "score" ? 0.32 : 0.7;
-      src.connect(g).connect(master);
-      src.start();
+      decoded[kind] = await ctx.decodeAudioData(await beds[kind].arrayBuffer());
       usedUploaded = true;
     } catch { /* an undecodable bed is skipped, not fatal to the render */ }
   }
+  const bedFor = (kind) => decoded[kind] || noiseBuffer(ctx, kind);
+  const now = ctx.currentTime;
+  const XF = 0.3;
 
-  if (!usedUploaded) {
-    const len = Math.max(1, Math.ceil(ctx.sampleRate * 4));
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < len; i++) {
-      // brown-ish noise: quieter and less hissy than white, closer to room tone
-      last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
-      d[i] = last * 3.5;
-    }
+  // one looping source per bed, gated by a gain envelope per segment, so a
+  // bed is continuous across two adjacent shots of the same class and only
+  // crossfades where the class actually changes
+  const lanes = {};
+  for (const kind of ["exterior", "interior"]) {
     const src = ctx.createBufferSource();
-    src.buffer = buf; src.loop = true;
+    src.buffer = bedFor(kind);
+    src.loop = true;
     const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass"; lp.frequency.value = 900;
+    lp.type = "lowpass";
+    lp.frequency.value = decoded[kind] ? 20000 : (kind === "exterior" ? 900 : 500);
     const g = ctx.createGain();
-    g.gain.value = 0.12;
+    g.gain.setValueAtTime(0, now);
     src.connect(lp).connect(g).connect(master);
-    src.start();
+    src.start(now);
+    lanes[kind] = g;
+  }
+  const level = (kind, cls) => {
+    const base = decoded[kind] ? 0.7 : (kind === "exterior" ? 0.35 : 0.18);
+    if (kind === cls) return base;
+    // the exterior bed stays faintly audible behind an interior's glazing
+    return kind === "exterior" && cls === "interior" ? base * 0.25 : 0;
+  };
+  for (const kind of ["exterior", "interior"]) {
+    const g = lanes[kind].gain;
+    let prev = 0;
+    segments.forEach((seg, i) => {
+      const target = level(kind, seg.cls);
+      const a = now + seg.t0;
+      if (i === 0) {
+        g.linearRampToValueAtTime(target, a + XF);
+      } else if (target !== prev) {
+        // crossfade centred on the cut; a cut between two shots of the same
+        // class leaves the bed running untouched
+        g.setValueAtTime(prev, Math.max(now, a - XF / 2));
+        g.linearRampToValueAtTime(target, a + XF / 2);
+      }
+      prev = target;
+    });
+    const end = now + total;
+    g.setValueAtTime(prev, Math.max(now, end - XF));
+    g.linearRampToValueAtTime(0, end);
   }
 
-  // fade the bed in and out with the picture
-  const now = ctx.currentTime;
+  if (decoded.score) {
+    const src = ctx.createBufferSource();
+    src.buffer = decoded.score;
+    src.loop = true;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.32, now);
+    g.gain.setValueAtTime(0.32, now + Math.max(0, total - 3));
+    g.gain.linearRampToValueAtTime(0, now + total);
+    src.connect(g).connect(master);
+    src.start(now);
+  }
+
+  // the bed fades with the picture: in over 1.2 s, out over the last 3 s
   master.gain.setValueAtTime(0, now);
   master.gain.linearRampToValueAtTime(1, now + 1.2);
-  master.gain.setValueAtTime(1, now + Math.max(1.3, seconds - 1.5));
-  master.gain.linearRampToValueAtTime(0, now + seconds);
+  master.gain.setValueAtTime(1, now + Math.max(1.3, total - 3));
+  master.gain.linearRampToValueAtTime(0, now + total);
   return { dest, usedUploaded };
 }
 
-/** Render the film. `clips` is [{blob, duration}] already in sequence order. */
-export async function renderFilm(project, clips, beds, onProgress) {
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+
+/** Render the film. `clips` is [{blob, duration, cls, chapter}] in sequence
+    order; `beds` is {exterior?, interior?, score?} Blobs; `logo` a Blob or
+    null. Timings follow spec Parts 11 and 12: picture fades in over 1.2 s
+    and out over the last 3 s; an overlaid title fades in at 0.6 s and is gone
+    by 4.0 s so the opening shot finishes clean; a solid card holds for 3 s
+    with 0.6 s fades. */
+export async function renderFilm(project, clips, beds, logo, onProgress) {
   const aspect = project.intake.aspect;
   const [W, H] = RES[aspect] || RES["16:9"];
   const b = project.branding;
   const cv = canvasOf(W, H);
   const ctx = cv.getContext("2d");
+  const logoImg = logo ? await blobToImage(logo).catch(() => null) : null;
 
   const videos = [];
   for (const c of clips) videos.push(await videoFor(c.blob));
@@ -101,16 +169,23 @@ export async function renderFilm(project, clips, beds, onProgress) {
   const tailCard = solid && cardEnd ? CARD_SECONDS : 0;
   const total = headCard + body + tailCard;
   if (!body) throw new Error("no approved clips to render");
+  // planning and consultation films carry the disclaimer on every frame
+  // whether or not the box was ticked (spec 1.3)
+  const everyFrame = !!b.disclaimer_every_frame || project.intake.end_use === "planning_consultation";
 
   // one segment per element of the timeline, so the draw loop is a lookup
   const segs = [];
   let at = 0;
   if (headCard) { segs.push({ kind: "card", which: "start", t0: 0, t1: headCard }); at = headCard; }
-  videos.forEach((v, i) => { segs.push({ kind: "clip", v, i, t0: at, t1: at + durations[i] }); at += durations[i]; });
+  videos.forEach((v, i) => {
+    segs.push({ kind: "clip", v, i, cls: clips[i].cls || "exterior", t0: at, t1: at + durations[i] });
+    at += durations[i];
+  });
   if (tailCard) segs.push({ kind: "card", which: "end", t0: at, t1: at + tailCard });
 
   const actx = new (window.AudioContext || window.webkitAudioContext)();
-  const { dest, usedUploaded } = await buildAudio(actx, total, beds);
+  const audioSegs = segs.map((s) => ({ cls: s.kind === "clip" ? s.cls : "interior", t0: s.t0, t1: s.t1 }));
+  const { dest, usedUploaded } = await buildAudio(actx, total, audioSegs, beds);
   const audioTrack = dest.stream.getAudioTracks()[0] || null;
 
   let playing = -1;
@@ -131,24 +206,29 @@ export async function renderFilm(project, clips, beds, onProgress) {
         const r = cropRect(sw, sh, aspect);
         ctx.drawImage(seg.v, r.x, r.y, r.w, r.h, 0, 0, W, H);
       }
-      paintOverlay(ctx, b, W, H, b.style === "lower_third" && t < seg.t0 + 5 && seg.i === 0);
-      if (!solid && cardStart && t < CARD_SECONDS + 1) {
-        const a = t < CARD_SECONDS ? 1 : 1 - (t - CARD_SECONDS);
-        paintTitle(ctx, b, W, H, "start", Math.max(0, a));
+      const bodyT = t - headCard;               // time since the first shot began
+      paintOverlay(ctx, b, W, H, b.style === "lower_third" && bodyT < 5 && seg.i === 0, everyFrame);
+      if (!solid && cardStart && bodyT < 4.0) {
+        // in from 0.6 s over 0.5 s, out from 3.5 s over 0.5 s
+        const a = bodyT < 0.6 ? 0 : bodyT < 1.1 ? (bodyT - 0.6) / 0.5 : bodyT < 3.5 ? 1 : 1 - (bodyT - 3.5) / 0.5;
+        paintTitle(ctx, b, W, H, "start", clamp01(a), logoImg);
       }
-      if (!solid && cardEnd && t > total - CARD_SECONDS - 1) {
-        const a = Math.min(1, (t - (total - CARD_SECONDS - 1)));
-        paintTitle(ctx, b, W, H, "end", Math.max(0, a));
+      if (!solid && cardEnd && t > total - tailCard - 4.5) {
+        const since = t - (total - tailCard - 4.5);
+        const a = since < 0.3 ? 0 : (since - 0.3) / 0.5;
+        paintTitle(ctx, b, W, H, "end", clamp01(a), logoImg);
       }
     } else {
-      paintTitle(ctx, b, W, H, seg.which, 1);
+      const since = t - seg.t0, left = seg.t1 - t;
+      const a = Math.min(since / 0.6, left / 0.6);
+      paintSolidCard(ctx, b, W, H, seg.which, clamp01(a), logoImg);
     }
     // fade from and to black at the ends of the film
     let fade = 0;
-    if (t < FADE) fade = 1 - t / FADE;
-    else if (t > total - FADE) fade = 1 - (total - t) / FADE;
+    if (t < FADE_IN) fade = 1 - t / FADE_IN;
+    else if (t > total - FADE_OUT) fade = 1 - (total - t) / FADE_OUT;
     if (fade > 0) {
-      ctx.fillStyle = `rgba(0,0,0,${Math.min(1, Math.max(0, fade))})`;
+      ctx.fillStyle = `rgba(0,0,0,${clamp01(fade)})`;
       ctx.fillRect(0, 0, W, H);
     }
     if (onProgress) onProgress(t / total, `${t.toFixed(1)}s of ${total.toFixed(1)}s`);

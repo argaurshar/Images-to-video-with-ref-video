@@ -86,3 +86,45 @@ export function makeZip(entries) {
 
 export const bytesOf = async (blob) => new Uint8Array(await blob.arrayBuffer());
 export const textBytes = (s) => enc.encode(s);
+
+// ------------------------------------------------------------------ reader
+
+/** Read a ZIP produced by makeZip, or any ordinary one. Store and deflate
+    entries are both handled: deflate through the browser's own
+    DecompressionStream, so a project exported here and one zipped by hand
+    both import. Returns [{name, data: Uint8Array}]. */
+export async function readZip(blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const dv = new DataView(buf.buffer);
+  const dec = new TextDecoder();
+  // locate the end-of-central-directory record from the tail
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 70000); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("not a ZIP file");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const out = [];
+  for (let n = 0; n < count; n++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error("ZIP central directory is damaged");
+    const method = dv.getUint16(p + 10, true);
+    const csize = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true), extraLen = dv.getUint16(p + 30, true), commentLen = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    const name = dec.decode(buf.subarray(p + 46, p + 46 + nameLen));
+    const lNameLen = dv.getUint16(local + 26, true), lExtraLen = dv.getUint16(local + 28, true);
+    const start = local + 30 + lNameLen + lExtraLen;
+    let data = buf.slice(start, start + csize);
+    if (method === 8) {
+      const ds = new DecompressionStream("deflate-raw");
+      const stream = new Blob([data]).stream().pipeThrough(ds);
+      data = new Uint8Array(await new Response(stream).arrayBuffer());
+    } else if (method !== 0) {
+      throw new Error(`ZIP entry ${name} uses an unsupported compression method`);
+    }
+    out.push({ name, data });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}

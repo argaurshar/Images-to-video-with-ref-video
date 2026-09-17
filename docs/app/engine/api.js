@@ -22,6 +22,7 @@ import { renderFilm, renderCrop, verify, stillsPack, projectRecord } from "./ren
 import { drawToImg, imgToCanvas } from "./imaging.js";
 import { canvasOf, cropLoss, thumbnail, blobToImage, canvasToBlob } from "./compose.js";
 import { posterBlob } from "./video.js";
+import { makeZip, readZip, bytesOf, textBytes } from "./zip.js";
 
 export const CLIP_SECONDS = 5;
 export const MAX_ATTEMPTS_PER_SHOT = 2;
@@ -56,7 +57,7 @@ function blankProject(name) {
     stage: "intake", hubs: [],
     intake: {
       route: "brief", aspect: "16:9", seasons: ["summer"], time_arc: "dawn_to_night", single_time: "afternoon",
-      mood: "serene", people: "scale_figure", length_shots: 5, location: "",
+      mood: "serene", people: "scale_figure", length_shots: 5, location: "", project_type: "",
       project_stage: "design_development", end_use: "client_presentation", interior_emphasis: null,
       design_intents: ["", "", ""], project_name: "", practice_name: "",
     },
@@ -290,10 +291,103 @@ on("POST", "/api/projects", async (_m, body) => {
   return p;
 });
 on("GET", "/api/projects/:pid", async (m) => load(m.pid));
+on("PATCH", "/api/projects/:pid", async (m, body) => {
+  const p = await load(m.pid);
+  if (body.name !== undefined) p.name = String(body.name).trim() || p.name;
+  await save(p);
+  return p;
+});
 on("DELETE", "/api/projects/:pid", async (m) => {
   await db.delFilesUnder(`projects/${m.pid}/`);
   await db.delProject(m.pid);
+  db.forgetAllURLs();
   return { ok: true };
+});
+
+/** Spec Part 13, reuse across films: a practice returns to the same project at
+    DA, at CD and at completion. The copy keeps the renders, the intake, the
+    location, the plan and the chosen heroes, so a second film costs stills and
+    clips only, not rediscovery. Spend starts from zero because it is a new
+    film. */
+on("POST", "/api/projects/:pid/duplicate", async (m, body) => {
+  const src = await load(m.pid);
+  const p = JSON.parse(JSON.stringify(src));
+  p.id = uid("prj");
+  p.name = (body && body.name) || `${src.name} (copy)`;
+  p.created_at = nowIso();
+  p.stage = src.plan.shots.length ? (src.heroes.some((h) => h.chosen) ? "board" : "hero") : "intake";
+  p.stills = []; p.clips = []; p.ledger = []; p.approvals = [];
+  p.sequence = { order: [], suggested_order: [], rationale: "", warnings: [] };
+  p.deliverables = { film: "", crops: {}, stills_pack: "", record_json: "", record_html: "", verification: {} };
+  p.budget.confirmed = false;
+  // heroes that were not chosen are not carried: they were a decision, and
+  // the decision was made
+  p.heroes = src.heroes.filter((h) => h.chosen);
+  const copyFile = async (from) => {
+    if (!from) return "";
+    const to = from.replace(`projects/${src.id}/`, `projects/${p.id}/`);
+    const b = await db.getFile(from);
+    if (b) await db.putFile(to, b);
+    return to;
+  };
+  for (const h of p.hubs) { h.path = await copyFile(h.path); await copyFile(`projects/${src.id}/thumbs/${h.id}.jpg`); }
+  for (const h of p.heroes) { h.path = await copyFile(h.path); h.thumb = await copyFile(h.thumb); }
+  if (p.branding.logo_path) p.branding.logo_path = await copyFile(p.branding.logo_path);
+  for (const [k, v] of Object.entries(p.audio_beds)) p.audio_beds[k] = await copyFile(v);
+  p.approvals.push({ ts: nowIso(), what: "duplicated from " + src.name, detail: { source: src.id } });
+  await save(p);
+  return p;
+});
+
+/** Everything about a project in one ZIP: the document and every file it
+    refers to. Storage here is one browser on one device, so this is how a
+    project moves to another machine, goes into the practice's file store, or
+    survives someone clearing site data. */
+on("GET", "/api/projects/:pid/export", async (m) => {
+  const p = await load(m.pid);
+  const keys = (await db.allFileKeys()).filter((k) => String(k).startsWith(`projects/${p.id}/`));
+  const entries = [{ name: "project.json", data: textBytes(JSON.stringify(p, null, 2)) }];
+  for (const k of keys) {
+    const b = await db.getFile(k);
+    if (b) entries.push({ name: String(k).slice(`projects/${p.id}/`.length), data: await bytesOf(b) });
+  }
+  return { blob: makeZip(entries), filename: `${p.name.replace(/[^\w.-]+/g, "_") || "project"}.archviz.zip` };
+});
+
+on("POST", "/api/projects/import", async (_m, body) => {
+  const f = body.get ? body.get("file") : null;
+  if (!f) throw new ApiError(400, "choose an exported project (.archviz.zip)");
+  let entries;
+  try { entries = await readZip(f); } catch (e) { throw new ApiError(400, e.message); }
+  const doc = entries.find((e) => e.name === "project.json");
+  if (!doc) throw new ApiError(400, "that ZIP has no project.json in it, so it is not an exported project");
+  let p;
+  try { p = JSON.parse(new TextDecoder().decode(doc.data)); } catch { throw new ApiError(400, "project.json is not valid JSON"); }
+  if (!p.id || !p.intake || !p.plan) throw new ApiError(400, "project.json does not look like a project");
+  // a fresh id so an import never overwrites a project that is already here,
+  // and a suffix when the name is already taken so the list stays readable
+  const oldId = p.id;
+  p.id = uid("prj");
+  const names = new Set((await db.allProjects()).map((x) => x.name));
+  if (names.has(p.name)) p.name = `${p.name} (imported)`;
+  const rewrite = (s) => (typeof s === "string" ? s.split(`projects/${oldId}/`).join(`projects/${p.id}/`) : s);
+  const walk = (o) => {
+    if (Array.isArray(o)) return o.map(walk);
+    if (o && typeof o === "object") { for (const k of Object.keys(o)) o[k] = walk(o[k]); return o; }
+    return rewrite(o);
+  };
+  walk(p);
+  const guessType = (n) => (/\.(jpe?g)$/i.test(n) ? "image/jpeg" : /\.png$/i.test(n) ? "image/png" : /\.webm$/i.test(n) ? "video/webm"
+    : /\.mp4$/i.test(n) ? "video/mp4" : /\.zip$/i.test(n) ? "application/zip" : /\.json$/i.test(n) ? "application/json"
+    : /\.html?$/i.test(n) ? "text/html" : "application/octet-stream");
+  for (const e of entries) {
+    if (e.name === "project.json") continue;
+    await db.putFile(`projects/${p.id}/${e.name}`, new Blob([e.data], { type: guessType(e.name) }));
+  }
+  p.approvals = p.approvals || [];
+  p.approvals.push({ ts: nowIso(), what: "imported", detail: { from: oldId, files: entries.length - 1 } });
+  await save(p);
+  return p;
 });
 
 on("POST", "/api/projects/:pid/hubs", async (m, body) => {
@@ -445,13 +539,19 @@ on("POST", "/api/projects/:pid/heroes/generate", async (m) => {
   const p = await load(m.pid);
   requireGates(p);
   const { p: prov } = await provider();
-  const classes = [...new Set(p.hubs.map((h) => h.cls))];
+  // only the variants that are missing: a class that already has its two is
+  // settled, so a second press after a crash does not pay for four more
+  const classes = [...new Set(p.hubs.map((h) => h.cls))]
+    .filter((cls) => p.heroes.filter((h) => h.cls === cls).length < 2);
+  if (!classes.length) throw new ApiError(409, "both variants already exist for every class; choose one below");
   const job = startJob("heroes", classes.length * 2);
+  let consecutive = 0;
   try {
     for (const cls of classes) {
       const shot = P.heroShot(p, cls);
       const hub = hubOf(p, shot.source_hub_id);
-      for (let variant = 1; variant <= 2; variant++) {
+      for (let variant = p.heroes.filter((h) => h.cls === cls).length + 1; variant <= 2; variant++) {
+        if (consecutive >= 2) break;
         job.current = `${cls} variant ${variant}`;
         try {
           const nudge = variant === 2 ? "\n\nSecond variant: the same frame a few minutes later in the light." : "";
@@ -460,8 +560,10 @@ on("POST", "/api/projects/:pid/heroes/generate", async (m) => {
           hero.id = "hero" + g.id.slice(3);
           p.heroes.push(hero);
           charge(p, "hero", g.cost, `${cls} variant ${variant}`);
+          consecutive = 0;
         } catch (e) {
           job.errors.push(`${cls} variant ${variant}: ${e.message}`);
+          if (++consecutive >= 2) job.errors.push("stopped after two consecutive provider failures");
         }
         job.done += 1;
         await save(p);
@@ -487,14 +589,26 @@ on("POST", "/api/projects/:pid/heroes/:hid/choose", async (m) => {
   return h;
 });
 
+/** Generate every still that does not have one yet (spec Part 13).
+
+    Run again after a crash, or after a browser tab was closed halfway, this
+    makes only what is missing: a shot with a pending or approved still is
+    settled and is not paid for twice. An explicit list of shot numbers (the
+    rejected ones) overrides that. Two consecutive provider failures mean the
+    provider is down, not unlucky, so the batch stops and says so rather than
+    walking the rest of the plan into the same wall. */
 async function stillsBatch(pid, shotNs = null, corrections = {}) {
   const p = await load(pid);
   requireGates(p);
   const { p: prov } = await provider();
-  const targets = p.plan.shots.filter((s) => !shotNs || shotNs.includes(s.n));
-  const job = startJob("stills", targets.length);
+  const todo = shotNs
+    ? p.plan.shots.filter((s) => shotNs.includes(s.n))
+    : p.plan.shots.filter((s) => !p.stills.some((x) => x.shot_n === s.n && ["pending", "approved"].includes(x.status)));
+  const job = startJob("stills", todo.length);
+  job.current = todo.length ? `${todo.length} still(s) to generate` : "nothing to generate: every shot already has a still";
+  let consecutive = 0;
   try {
-    for (const shot of targets) {
+    for (const shot of todo) {
       job.current = `shot ${shot.n} (${shot.cls}, ${shot.season} ${shot.time})`;
       const hub = hubOf(p, shot.source_hub_id);
       if (!hub) { job.errors.push(`shot ${shot.n}: its source render is gone`); job.done += 1; continue; }
@@ -503,13 +617,18 @@ async function stillsBatch(pid, shotNs = null, corrections = {}) {
         const g = await genStill(p, prov, await db.loadSettings(), shot, hub, corrections[shot.n] || "", attempt);
         p.stills.push(g);
         charge(p, "still", g.cost, `shot ${shot.n} attempt ${attempt}`);
+        consecutive = 0;
       } catch (e) {
         job.errors.push(`shot ${shot.n}: ${e.message}`);
+        if (++consecutive >= 2) {
+          job.errors.push("stopped after two consecutive provider failures; nothing that did not arrive was charged");
+          break;
+        }
       }
       job.done += 1;
       await save(p);          // crash-safe: work already paid for is on disk
     }
-    p.stage = "board";
+    if (p.stills.length) p.stage = "board";
     await save(p);
   } finally { endJob(); }
 }
@@ -562,15 +681,24 @@ on("POST", "/api/projects/:pid/stills/:sid/reject", async (m, body) => {
   return s;
 });
 
+/** Generate a clip for every shot that lacks one, committing each as it lands.
+    Video is the expensive step, so a batch that dies at shot 12 of 14 must not
+    lose the twelve already paid for, and running it again must make only the
+    two. A cut clip counts as settled: the designer dropped that shot on
+    purpose, often at the two-attempt limit, and remaking it would bill a third
+    time. */
 async function clipsBatch(pid) {
   const p = await load(pid);
   requireGates(p);
   const { p: prov } = await provider();
   const approvedFor = (n) => p.stills.filter((s) => s.shot_n === n && s.status === "approved").slice(-1)[0];
-  const targets = p.plan.shots.filter((s) => approvedFor(s.n));
-  const job = startJob("clips", targets.length);
+  const todo = p.plan.shots.filter((s) =>
+    approvedFor(s.n) && !p.clips.some((c) => c.shot_n === s.n && ["pending", "approved", "cut"].includes(c.status)));
+  const job = startJob("clips", todo.length);
+  job.current = todo.length ? `${todo.length} clip(s) to generate` : "nothing to generate: every approved still already has a clip";
+  let consecutive = 0;
   try {
-    for (const shot of targets) {
+    for (const shot of todo) {
       const still = approvedFor(shot.n);
       const attempt = p.clips.filter((c) => c.shot_n === shot.n).length + 1;
       job.current = `shot ${shot.n} (${shot.duration}s)`;
@@ -579,13 +707,19 @@ async function clipsBatch(pid) {
           (frac) => { job.current = `shot ${shot.n} · ${typeof frac === "number" ? Math.round(frac * 100) + "%" : frac}`; });
         p.clips.push(c);
         charge(p, "clip", c.cost, `shot ${shot.n} attempt ${attempt}`);
+        consecutive = 0;
+        job.current = `shot ${shot.n}: QC ${c.qc.passed ? "pass" : "fail"}`;
       } catch (e) {
         job.errors.push(`shot ${shot.n}: ${e.message}`);
+        if (++consecutive >= 2) {
+          job.errors.push("stopped after two consecutive provider failures; nothing that did not arrive was charged");
+          break;
+        }
       }
       job.done += 1;
       await save(p);
     }
-    p.stage = "clips";
+    if (p.clips.length) p.stage = "clips";
     await save(p);
   } finally { endJob(); }
 }
@@ -788,8 +922,11 @@ on("POST", "/api/projects/:pid/render", async (m, _b, q) => {
       const b = await db.getFile(path);
       if (b) beds[k] = b;
     }
+    const logo = p.branding.logo_path ? await db.getFile(p.branding.logo_path) : null;
+    // the clips carry their class so the bed can follow it (spec 12.5)
+    ordered.forEach((c, i) => { clips[i].cls = c.cls; clips[i].chapter = (shotOf(p, c.shot_n) || {}).chapter || 1; });
     job.current = "recording the film in real time";
-    const film = await renderFilm(p, clips, beds, (frac, label) => { job.current = `film · ${label}`; });
+    const film = await renderFilm(p, clips, beds, logo, (frac, label) => { job.current = `film · ${label}`; });
     const filmPath = `projects/${p.id}/deliverables/film.${film.ext}`;
     await db.putFile(filmPath, film.blob);
     p.deliverables.film = filmPath;
