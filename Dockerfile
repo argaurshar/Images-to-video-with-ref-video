@@ -18,11 +18,11 @@ COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 COPY SPEC.md README.md ./
 
-# Projects, renders and the record live here. Mount a volume on it in
-# production, or every project vanishes when the container restarts.
+# Projects, renders, the project record and the saved API key live here.
+# Without a mounted volume this is an ordinary directory inside the container,
+# so it is wiped on restart; mount a volume on it for anything real.
 ENV ARCHVIZ_DATA_DIR=/data
-RUN mkdir -p /data
-VOLUME ["/data"]
+RUN mkdir -p /data && chmod 700 /data
 
 ENV ARCHVIZ_PROVIDER=mock
 EXPOSE 8000

@@ -43,24 +43,66 @@ A page describing the app, with screenshots of the interface, is published from 
 
 It is documentation, not the running app: see below for why, and for how to run the real thing.
 
-## Deploying it
+## Run it in the cloud, with nothing installed
 
-This is a Python service, not a static site. It needs a server process, a writable disk and a secret API key, so **GitHub Pages cannot run it** — Pages serves static files only. The `docs/` folder publishes a project page to Pages; the app itself needs somewhere that runs containers.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/argaurshar/Images-to-video-with-ref-video)
 
-### Docker
+That button is the whole setup. You sign in to Render with GitHub, it reads
+`render.yaml` from this repo, and it builds the Dockerfile for you. No terminal,
+no Docker on your machine, no environment variables to fill in.
+
+When the build finishes you get a URL. Open it and the app asks you to do two
+things, both inside the app itself:
+
+1. **Set an access code.** The instance holds your paid API key and lives on a
+   public address, so it locks itself to you. Until you claim it, anyone with
+   the URL could use it.
+2. **Paste your Freepik API key** under Settings, choose the Freepik provider,
+   and press "Test the key" to confirm it works before anything is charged.
+
+That is it. The key is stored on your server, never in this repository and
+never sent back to your browser.
+
+### What the free plan actually gives you
+
+The blueprint defaults to Render's free plan so you can deploy without a credit
+card. Be aware of what that means:
+
+| | Free | Starter, about $9.50/month |
+|---|---|---|
+| Projects and renders survive a restart | No, wiped | Yes, on a 10 GB disk |
+| Your saved API key survives a restart | No, re-enter it | Yes |
+| Sleeps when idle | Yes, ~50s to wake | No |
+| Memory | 512 MB, tight for long films | 512 MB, always on |
+
+Free is genuinely fine for trying the whole pipeline on the mock provider,
+which costs nothing and still exercises the audit, the QC suite and the render.
+For real client work, open `render.yaml`, change `plan: free` to `plan: starter`
+and uncomment the disk block.
+
+### Why it cannot run on GitHub Pages
+
+Pages serves static files. This is a Python server that runs ffmpeg and OpenCV
+and keeps background jobs alive for tens of minutes, so it needs a container
+host. The Pages site at
+https://argaurshar.github.io/Images-to-video-with-ref-video/ is documentation
+about the app, not the app.
+
+### Running it on your own machine instead
 
 ```bash
-docker build -t archviz .
-docker run -p 8000:8000 -v archviz-data:/data archviz
+pip install -r requirements.txt && ./run.sh      # http://127.0.0.1:8000
 ```
 
-The image deliberately does not install distro ffmpeg: `imageio-ffmpeg` ships a static binary and every call goes through it. Mount a volume on `/data` or every project disappears when the container restarts.
+Or with Docker:
 
-### One-click
+```bash
+docker build -t archviz . && docker run -p 8000:8000 -v archviz-data:/data archviz
+```
 
-`render.yaml` is a Render blueprint with a 10GB disk mounted at `/data` and a health check on `/api/health`. Set `FREEPIK_API_KEY` in the dashboard, never in the repo, and flip `ARCHVIZ_PROVIDER` to `freepik` when you are ready to spend.
-
-**Run a single worker.** The batch job registry lives in the process. A second worker would not see a running job, so it could start a duplicate batch and pay twice. Scale with a larger machine instead.
+**Run a single worker.** The batch job registry lives in the process. A second
+worker would not see a running job, so it could start a duplicate batch and pay
+twice. Scale with a larger machine instead.
 
 ## Long runs
 

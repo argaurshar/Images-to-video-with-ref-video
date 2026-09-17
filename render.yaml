@@ -1,24 +1,35 @@
-# One-click deploy to Render: https://render.com/deploy
-# The app needs a persistent disk; projects, renders and the project record
-# all live on it.
+# One-click deploy: https://render.com/deploy?repo=https://github.com/argaurshar/Images-to-video-with-ref-video
+#
+# Defaults to the FREE plan so it can be deployed with no credit card and no
+# local tooling. Nothing else needs configuring: open the URL the deploy gives
+# you, set an access code, and paste your API key into the app's own Settings.
+#
+# What the free plan costs you, honestly:
+#   - No persistent disk. Projects, renders and your saved API key are wiped
+#     whenever the service restarts or wakes from sleep.
+#   - Sleeps after ~15 minutes idle; the next visit takes ~50s to wake.
+#   - 512 MB RAM and a fraction of a CPU, so renders are slow and a long film
+#     may run out of memory.
+#
+# For real client work, change `plan: free` to `plan: starter` and uncomment
+# the disk block. That is about $9.50/month and makes projects survive a
+# restart. Render will ask for a card at that point, not before.
 services:
   - type: web
     name: archviz-cinematic-engine
     runtime: docker
-    plan: starter          # needs a paid plan for the disk; free tier has no persistent storage
+    plan: free
     healthCheckPath: /api/health
-    disk:
-      name: archviz-data
-      mountPath: /data
-      sizeGB: 10
+    autoDeploy: true
+    # disk:
+    #   name: archviz-data
+    #   mountPath: /data
+    #   sizeGB: 10
     envVars:
       - key: ARCHVIZ_DATA_DIR
-        value: /data
-      - key: ARCHVIZ_PROVIDER
-        value: mock        # switch to "freepik" once the key below is set
-      - key: FREEPIK_API_KEY
-        sync: false        # set this in the Render dashboard; never commit it
-      - key: ARCHVIZ_IMAGE_COST
-        value: "0.08"
-      - key: ARCHVIZ_VIDEO_COST
-        value: "0.28"
+        value: /data          # a plain directory on free; a real mount once the disk above is enabled
+      # Everything else is set inside the app, under Settings.
+      # Optional: set an access code here to lock the instance from the very
+      # first second, instead of claiming it yourself after it boots.
+      - key: ARCHVIZ_ACCESS_CODE
+        sync: false
