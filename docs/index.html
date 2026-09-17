@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArchViz Cinematic Engine</title>
+<meta name="description" content="Turns an architect's renders into a short cinematic film across seasons and times of day, without ever redesigning the building.">
+<style>
+  :root{--bg:#0f1114;--panel:#171a1f;--line:#262b33;--text:#e8e9eb;--muted:#9aa3ad;--accent:#d9b46a;--ok:#6fcf97;--bad:#eb5757}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+  .wrap{max-width:940px;margin:0 auto;padding:0 20px}
+  header{border-bottom:1px solid var(--line);padding:64px 0 48px;background:linear-gradient(180deg,#14171c,#0f1114)}
+  h1{font-size:40px;margin:0 0 12px;letter-spacing:-.02em}
+  h1 .dot{color:var(--accent)}
+  .tagline{color:var(--muted);font-size:19px;max-width:640px;margin:0 0 28px}
+  .cta{display:flex;gap:12px;flex-wrap:wrap}
+  .btn{display:inline-block;background:var(--accent);color:#111;padding:11px 20px;border-radius:7px;font-weight:600;text-decoration:none}
+  .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  h2{font-size:24px;margin:52px 0 6px;letter-spacing:-.01em}
+  h2 + p.sub{color:var(--muted);margin:0 0 22px}
+  section{padding-bottom:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+  .card h3{margin:0 0 8px;font-size:16px;color:var(--accent)}
+  .card p{margin:0;color:var(--muted);font-size:14.5px}
+  figure{margin:0 0 26px}
+  figure img{width:100%;border:1px solid var(--line);border-radius:10px;display:block}
+  figcaption{color:var(--muted);font-size:14px;margin-top:9px}
+  table{width:100%;border-collapse:collapse;font-size:14.5px;margin:10px 0 4px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:500}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  pre{background:#0c0e11;border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;font-size:13.5px}
+  .note{border-left:3px solid var(--accent);background:#14171c;padding:14px 16px;border-radius:0 8px 8px 0;margin:18px 0}
+  .note strong{color:var(--accent)}
+  ol li,ul li{margin-bottom:7px}
+  footer{border-top:1px solid var(--line);margin-top:64px;padding:28px 0 56px;color:var(--muted);font-size:14px}
+  a{color:#6aa9ff}
+  .tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:10px;border:1px solid var(--line);color:var(--muted);margin-right:5px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1><span class="dot">&#9679;</span> ArchViz Cinematic Engine</h1>
+    <p class="tagline">Turns an architect's or interior designer's renders into a short cinematic film across seasons, times of day and moods, without ever redesigning the building.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/argaurshar/Images-to-video-with-ref-video">View the repository</a>
+      <a class="btn ghost" href="#run">Run it yourself</a>
+      <a class="btn ghost" href="https://github.com/argaurshar/Images-to-video-with-ref-video/blob/claude/app-md-review-enhance-its81i/SPEC.md">Read the spec</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <h2>The problem it solves</h2>
+  <p class="sub">A practice sells design intent to homeowners, contractors, planning officers and awards juries.</p>
+  <p>Image models will happily invent a staircase, move a road, or rearrange a kitchen while changing the season. That is fine for a mood board and fatal for a client presentation. This engine treats the uploaded renders as the source of truth and changes only light, weather, season, occupancy and framing.</p>
+  <div class="grid">
+    <div class="card"><h3>The renders are sacred</h3><p>No added floors, moved walls, swapped finishes or rearranged furniture. Exteriors and interiors each get their own protected-element list.</p></div>
+    <div class="card"><h3>Hub and spoke, never a chain</h3><p>Every generated image references an original upload. Nothing is ever generated from a previous generation, because drift compounds at each hop.</p></div>
+    <div class="card"><h3>Measured, not eyeballed</h3><p>Every clip is scored on motion, frozen overlay, particle density, geometry drift, vertical lean and colour drift before you are shown it.</p></div>
+    <div class="card"><h3>A visualisation, not a study</h3><p>Sun direction is approximated from a stated compass heading. Every deliverable carries a disclaimer and an optional project-stage stamp.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>How it works</h2>
+  <p class="sub">Nine stages. You approve every one, and nothing expensive happens before you do.</p>
+
+  <figure>
+    <img src="img/intake.png" alt="Intake screen with uploaded renders, detected properties, and the questionnaire">
+    <figcaption><strong>1. Intake.</strong> Upload one to eight renders. The app detects whether each is exterior or interior along with its light state, and you name the actual finishes so prompts use your words rather than invented ones. Stating which way an exterior camera faces is what puts the sun on the correct side.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="img/plan.png" alt="Shot plan table with class, season, time, scale, source render, duration and design intent per shot">
+    <figcaption><strong>3. Shot plan.</strong> A deterministic planner applies the scale pyramid, calendar order for the site's hemisphere, chapter closers, human beats at the edges and one heavy weather beat. Your three design intents each get a shot. Every row is editable before anything is generated.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="img/clips-qc.png" alt="Clips table with per-clip QC metrics and pass badges">
+    <figcaption><strong>6. Clips and QC.</strong> Every clip is measured before it is shown. A failure is named with its cause, and a regeneration must change something real: the camera, the cue weight or the weather. After two attempts the engine recommends cutting the shot rather than burning a third.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="img/sequence.png" alt="Sequence editor with draggable clip thumbnails and a brightness strip">
+    <figcaption><strong>7. Sequence.</strong> A suggested order with its reasoning, then drag freely. The strip shows the light arc, and warnings flag three same-scale shots in a row or a continuity break inside a chapter.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="img/render.png" alt="Final render screen with verification numbers and download links">
+    <figcaption><strong>9. Delivery.</strong> The film, crop-only variants, a stills pack, and a project record listing every prompt, audit, QC table, approval and cost. That record is the file copy for when a client asks in six months why the film showed the deck in rain.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Two ways to direct it</h2>
+  <table>
+    <tr><th>Route</th><th>What you give it</th><th>What it takes from that</th></tr>
+    <tr><td>Season or mood brief</td><td>Seasons, time arc, mood, location, end use</td><td>Builds the plan from the house rules and researched local climate</td></tr>
+    <tr><td>Reference film</td><td>A film whose style you want</td><td>Per-shot length, exterior/interior rhythm, scale changes, and a time arc from the shape of its light curve</td></tr>
+  </table>
+  <div class="note"><strong>Structure is copied; colour is not.</strong> A reference film's grade belongs to its own climate. A Japanese cedar forest is warm and olive; a Himalayan slate house under monsoon is cool and blue-grey. Matching the grade to the wrong site is the single most common way these films look wrong.</div>
+</section>
+
+<section id="run">
+  <h2>Run it</h2>
+  <p class="sub">This is a Python service, not a static site.</p>
+  <div class="note"><strong>Why there is no live demo on this page.</strong> The app needs a Python server, ffmpeg, OpenCV, a writable disk and a secret API key. GitHub Pages serves static files only, so this page can document the app but cannot run it. Use Docker, or the one-click deploy below.</div>
+  <pre>git clone https://github.com/argaurshar/Images-to-video-with-ref-video
+cd Images-to-video-with-ref-video
+pip install -r requirements.txt
+./run.sh            # http://127.0.0.1:8000</pre>
+  <p>That starts on the <strong>mock provider</strong>: generation is simulated locally and costs nothing, while the audit, the QC suite and the render all run for real. Rehearse a whole project before spending anything.</p>
+  <p>With Docker, which is also what the one-click deploy uses:</p>
+  <pre>docker build -t archviz .
+docker run -p 8000:8000 -v archviz-data:/data archviz</pre>
+  <p>For real generation, set <code>ARCHVIZ_PROVIDER=freepik</code> and <code>FREEPIK_API_KEY</code>. The key is read from the environment and never written to the repository or sent to the browser.</p>
+</section>
+
+<section>
+  <h2>Honest limits</h2>
+  <ul>
+    <li>The fidelity audit and the QC metrics are numeric proxies. They catch gross drift and painted overlays; a designer still runs the checklist by eye before approving a still.</li>
+    <li>Sun direction is approximated from the stated heading and the time slot. It is not a solar study, and the disclaimer says so.</li>
+    <li>The built-in ambience bed is a placeholder. Upload real beds and a score on the branding page.</li>
+    <li>Run it with a single worker. The batch job registry lives in the process, so a second worker could start a duplicate paid batch.</li>
+  </ul>
+</section>
+
+<footer>
+  <div class="wrap" style="padding:0">
+    <span class="tag">FastAPI</span><span class="tag">OpenCV</span><span class="tag">ffmpeg</span><span class="tag">no build step</span>
+    <p>Source and full specification on <a href="https://github.com/argaurshar/Images-to-video-with-ref-video">GitHub</a>. Screenshots are of the app running on the mock provider with synthetic test renders, so the buildings are placeholder shapes; the interface, the measurements and the numbers are real.</p>
+  </div>
+</footer>
+
+</div>
+</body>
+</html>

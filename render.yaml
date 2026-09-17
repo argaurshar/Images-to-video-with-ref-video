@@ -1,0 +1,24 @@
+# One-click deploy to Render: https://render.com/deploy
+# The app needs a persistent disk; projects, renders and the project record
+# all live on it.
+services:
+  - type: web
+    name: archviz-cinematic-engine
+    runtime: docker
+    plan: starter          # needs a paid plan for the disk; free tier has no persistent storage
+    healthCheckPath: /api/health
+    disk:
+      name: archviz-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: ARCHVIZ_DATA_DIR
+        value: /data
+      - key: ARCHVIZ_PROVIDER
+        value: mock        # switch to "freepik" once the key below is set
+      - key: FREEPIK_API_KEY
+        sync: false        # set this in the Render dashboard; never commit it
+      - key: ARCHVIZ_IMAGE_COST
+        value: "0.08"
+      - key: ARCHVIZ_VIDEO_COST
+        value: "0.28"

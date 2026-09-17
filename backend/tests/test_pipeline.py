@@ -386,8 +386,11 @@ def test_a_dying_batch_keeps_everything_it_paid_for(client, monkeypatch):
         return real(*a, **kw)
 
     monkeypatch.setattr(stills_router, "_gen_still", explode_on_third)
-    with pytest.raises(RuntimeError):
-        client.post(f"/api/projects/{pid}/stills/generate")
+    r = client.post(f"/api/projects/{pid}/stills/generate")
+    # the batch absorbs the provider failure and reports it rather than throwing,
+    # so the work already committed is never rolled back by an escaping exception
+    assert r.status_code == 200, r.text
+    assert len(r.json()["made"]) == 2
 
     p = client.get(f"/api/projects/{pid}").json()
     saved = [s for s in p["stills"] if s["status"] == "pending"]
@@ -416,8 +419,9 @@ def test_batch_stops_after_two_consecutive_provider_failures(client, monkeypatch
         raise HTTPException(502, "provider error: upstream down")
 
     monkeypatch.setattr(stills_router, "_gen_still", always_502)
-    made = stills_router._stills_batch(pid, job_id=None)
-    assert made == []
+    result = stills_router._stills_batch(pid, job_id=None)
+    assert result["made"] == []
+    assert result["aborted"] is True, "two consecutive failures should abort the batch"
     p = client.get(f"/api/projects/{pid}").json()
     assert not [s for s in p["stills"] if s["status"] == "pending"]
     assert not [e for e in p["ledger"] if e["kind"] == "still"], "nothing should be charged for failures"
@@ -456,3 +460,68 @@ def test_a_crafted_project_id_cannot_escape_the_data_directory(client):
     for bad in ("..%2F..%2Fetc", "..", "%2e%2e"):
         r = client.get(f"/api/projects/{bad}")
         assert r.status_code in (404, 307), f"{bad} -> {r.status_code}"
+
+
+
+def test_a_cut_shot_is_never_regenerated_or_rebilled(client):
+    """A cut shot is settled. The user usually cut it after the two-attempt
+    limit, so putting it back in the batch would bill a third time."""
+    pid = _ready_for_stills(client, shots=3)
+    client.post(f"/api/projects/{pid}/stills/generate")
+    client.post(f"/api/projects/{pid}/stills/approve_all")
+    client.post(f"/api/projects/{pid}/clips/generate")
+    clips = client.get(f"/api/projects/{pid}").json()["clips"]
+    assert len(clips) == 3
+    victim = clips[0]
+    client.post(f"/api/projects/{pid}/clips/{victim['id']}/cut")
+    charges_before = len([e for e in client.get(f"/api/projects/{pid}").json()["ledger"] if e["kind"] == "clip"])
+
+    r = client.post(f"/api/projects/{pid}/clips/generate")
+    assert r.json()["made"] == [], "a cut shot must not come back in the batch"
+    after = client.get(f"/api/projects/{pid}").json()
+    assert len([e for e in after["ledger"] if e["kind"] == "clip"]) == charges_before
+
+
+def test_regenerating_a_clip_whose_still_was_rejected_is_refused_not_a_crash(client):
+    pid = _ready_for_stills(client, shots=2)
+    client.post(f"/api/projects/{pid}/stills/generate")
+    client.post(f"/api/projects/{pid}/stills/approve_all")
+    client.post(f"/api/projects/{pid}/clips/generate")
+    shot_n = client.get(f"/api/projects/{pid}").json()["clips"][0]["shot_n"]
+    still = next(s for s in client.get(f"/api/projects/{pid}").json()["stills"]
+                 if s["shot_n"] == shot_n and s["status"] == "approved")
+    client.post(f"/api/projects/{pid}/stills/{still['id']}/reject", json={"note": "changed my mind"})
+
+    r = client.post(f"/api/projects/{pid}/clips/regenerate",
+                    json={"items": [{"shot_n": shot_n, "mode": "camera_softer"}]})
+    assert r.status_code == 200, r.text
+    assert r.json()["made"] == []
+    assert r.json()["refused"] and "no approved still" in r.json()["refused"][0]["reason"]
+
+
+def test_a_stale_writer_cannot_drop_work_a_batch_committed(client):
+    """The failure the locking exists for: a UI action loaded the project
+    before a batch committed, and must not write its stale copy back over it."""
+    from app.store import load_project, save_project
+    pid = _ready_for_stills(client, shots=3)
+    stale = load_project(pid)                      # a handler's in-hand copy, taken early
+    client.post(f"/api/projects/{pid}/stills/generate")   # a batch commits three stills + charges
+    committed = client.get(f"/api/projects/{pid}").json()
+    assert len(committed["stills"]) == 3
+
+    stale.name = "renamed by a slow handler"       # the handler makes its own edit and saves
+    save_project(stale)
+
+    after = client.get(f"/api/projects/{pid}").json()
+    assert after["name"] == "renamed by a slow handler", "the handler's own edit should apply"
+    assert len(after["stills"]) == 3, "the batch's committed stills were clobbered"
+    assert len([e for e in after["ledger"] if e["kind"] == "still"]) == 3, "paid charges were clobbered"
+
+
+def test_an_unreadable_project_is_not_reported_as_missing(client):
+    from app.store import project_dir
+    pid = client.post("/api/projects", json={"name": "corrupt"}).json()["id"]
+    (project_dir(pid) / "project.json").write_text("{ this is not json")
+    r = client.get(f"/api/projects/{pid}")
+    assert r.status_code == 500
+    assert "could not be parsed" in r.json()["detail"]

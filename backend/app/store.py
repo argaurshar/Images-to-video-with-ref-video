@@ -38,9 +38,13 @@ def new_id(prefix: str) -> str:
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
+class InvalidProjectId(ValueError):
+    """A project id that could never have been issued by this server."""
+
+
 def project_dir(pid: str) -> Path:
     if not _ID_RE.match(pid or ""):
-        raise ValueError(f"invalid project id: {pid!r}")
+        raise InvalidProjectId(f"invalid project id: {pid!r}")
     return DATA_DIR / "projects" / pid
 
 
@@ -79,22 +83,55 @@ def load_project(pid: str) -> Project:
     return Project.model_validate_json(f.read_text())
 
 
+# Generations and ledger entries are only ever appended, never removed, so a
+# copy of the project loaded before a batch committed is not wrong, it is just
+# short. Re-adding what it never saw is what stops a UI click from silently
+# discarding work the provider has already been paid for.
+_APPEND_ONLY = ("heroes", "stills", "clips")
+
+
+def _merge_missing(target: Project, disk: Project) -> None:
+    for field in _APPEND_ONLY:
+        have = {x.id for x in getattr(target, field)}
+        extra = [x for x in getattr(disk, field) if x.id not in have]
+        if extra:
+            getattr(target, field).extend(extra)
+    seen = {(e.ts, e.kind, e.cost, e.note) for e in target.ledger}
+    extra_ledger = [e for e in disk.ledger if (e.ts, e.kind, e.cost, e.note) not in seen]
+    if extra_ledger:
+        target.ledger.extend(extra_ledger)
+
+
 def save_project(p: Project) -> None:
-    p.updated_at = now_iso()
+    """Write the project, first folding back any generation or charge that
+    landed on disk after this copy was loaded.
+
+    Every writer takes the project lock here, not only the ones that went
+    through mutate(), because a plain load-edit-save handler racing a running
+    batch is exactly how paid work goes missing.
+    """
     f = project_dir(p.id) / "project.json"
     tmp = f.with_suffix(".json.tmp")
-    with _lock:
+    with project_lock(p.id):
+        if f.exists():
+            try:
+                _merge_missing(p, Project.model_validate_json(f.read_text()))
+            except ValueError:
+                pass          # unreadable on-disk copy: our in-hand one is the better record
+        p.updated_at = now_iso()
         tmp.write_text(p.model_dump_json(indent=2))
         tmp.replace(f)
 
 
-_project_locks: dict[str, threading.Lock] = {}
+_project_locks: dict[str, threading.RLock] = {}
 _locks_guard = threading.Lock()
 
 
-def project_lock(pid: str) -> threading.Lock:
+def project_lock(pid: str) -> threading.RLock:
+    # Reentrant: mutate() holds this lock and the save_project() inside it
+    # takes the same lock again.
     with _locks_guard:
-        return _project_locks.setdefault(pid, threading.Lock())
+        return _project_locks.setdefault(pid, threading.RLock())
 
 
 @contextmanager

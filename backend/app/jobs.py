@@ -37,7 +37,7 @@ class Job:
     def as_dict(self) -> dict:
         return {
             "id": self.id, "project_id": self.project_id, "kind": self.kind, "total": self.total,
-            "done": self.done, "current": self.current, "status": self.status, "errors": self.errors,
+            "done": self.done, "current": self.current, "status": self.status, "errors": list(self.errors),
             "started_at": self.started_at, "finished_at": self.finished_at,
         }
 

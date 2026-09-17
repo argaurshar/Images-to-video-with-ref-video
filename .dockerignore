@@ -1,0 +1,11 @@
+data/
+.git/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+docs/img/
+.github/
+*.md
+!README.md
+!SPEC.md

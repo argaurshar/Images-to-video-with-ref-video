@@ -36,6 +36,25 @@ The Freepik adapter (`backend/app/services/providers/freepik.py`) submits an ima
 
 Optional: set `ANTHROPIC_API_KEY` and the engine asks Claude to research the location profile (climate, vegetation, wet and snow months, local signature). Without it, a built-in table covers the Bay Area, India, the Himalaya, the UK, Japan, Australia and the Gulf, and everything else gets a generic temperate profile that says so.
 
+## Deploying it
+
+This is a Python service, not a static site. It needs a server process, a writable disk and a secret API key, so **GitHub Pages cannot run it** — Pages serves static files only. The `docs/` folder publishes a project page to Pages; the app itself needs somewhere that runs containers.
+
+### Docker
+
+```bash
+docker build -t archviz .
+docker run -p 8000:8000 -v archviz-data:/data archviz
+```
+
+The image deliberately does not install distro ffmpeg: `imageio-ffmpeg` ships a static binary and every call goes through it. Mount a volume on `/data` or every project disappears when the container restarts.
+
+### One-click
+
+`render.yaml` is a Render blueprint with a 10GB disk mounted at `/data` and a health check on `/api/health`. Set `FREEPIK_API_KEY` in the dashboard, never in the repo, and flip `ARCHVIZ_PROVIDER` to `freepik` when you are ready to spend.
+
+**Run a single worker.** The batch job registry lives in the process. A second worker would not see a running job, so it could start a duplicate batch and pay twice. Scale with a larger machine instead.
+
 ## Long runs
 
 The two expensive stages accept `?background=true`, which returns a job instead of holding the request open:

@@ -4,12 +4,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import config, costs, jobs
-from ..models import Hero, Still
+from ..models import AuditReport, Hero, Still
 from ..services.audit import audit_still
 from ..services.imageops import make_thumb
 from ..services.planning import prompts
 from ..services.providers import ProviderError, get_provider
-from ..store import abs_path, mutate, new_id, project_dir, rel, save_project
+from ..store import abs_path, mutate, new_id, project_dir, project_lock, rel, save_project
 from .common import get, gate
 
 router = APIRouter(prefix="/api/projects/{pid}", tags=["stills"])
@@ -34,11 +34,17 @@ def _gen_still(p, shot, hub, out_dir, corrections: str = "", attempt: int = 1) -
         res = prov.generate_still(abs_path(hub.path), prompt, neg, p.intake.aspect, out)
     except ProviderError as e:
         raise HTTPException(502, f"provider error: {e}")
-    make_thumb(out, project_dir(p.id) / "thumbs" / f"{sid}.jpg")
+    try:
+        make_thumb(out, project_dir(p.id) / "thumbs" / f"{sid}.jpg")
+    except Exception:          # noqa: BLE001 - a thumbnail is cosmetic; the paid image is not
+        pass
     st = Still(id=sid, shot_n=shot.n or None, cls=shot.cls, source_hub_id=hub.id, attempt=attempt, path=rel(out),
                thumb=rel(project_dir(p.id) / "thumbs" / f"{sid}.jpg"), prompt=prompt, negative=neg,
                provider=prov.name, provider_id=res.provider_id, cost=res.cost)
-    st.audit = audit_still(abs_path(hub.path), out, shot.cls)
+    try:
+        st.audit = audit_still(abs_path(hub.path), out, shot.cls)
+    except Exception as e:     # noqa: BLE001 - advisory; never drop a paid image over it
+        st.audit = AuditReport(rating="not_run", notes=f"audit could not run: {e}")
     return st
 
 
@@ -60,6 +66,7 @@ def _stills_batch(pid: str, job_id: str | None = None) -> list[Still]:
         jobs.progress(job_id, done=0, current=f"{len(todo)} still(s) to generate")
     made: list[Still] = []
     consecutive_failures = 0
+    aborted = False
     for i, shot in enumerate(todo):
         if job_id:
             jobs.progress(job_id, done=i, current=f"shot {shot.n} ({shot.cls})")
@@ -68,14 +75,16 @@ def _stills_batch(pid: str, job_id: str | None = None) -> list[Still]:
         attempt = 1 + sum(1 for x in snap.stills if x.shot_n == shot.n)
         try:
             st = _gen_still(snap, shot, hub, project_dir(pid) / "stills", attempt=attempt)
-        except HTTPException as e:
+        except Exception as e:                       # noqa: BLE001 - reported on the job
             consecutive_failures += 1
+            detail = getattr(e, "detail", None) or f"{type(e).__name__}: {e}"
             if job_id:
-                jobs.progress(job_id, error=f"shot {shot.n}: {e.detail}")
+                jobs.progress(job_id, error=f"shot {shot.n}: {detail}")
             # a provider that fails twice in a row is down, not unlucky
             if consecutive_failures >= 2:
                 if job_id:
                     jobs.progress(job_id, error="stopped after two consecutive provider failures")
+                aborted = True
                 break
             continue
         consecutive_failures = 0
@@ -86,7 +95,7 @@ def _stills_batch(pid: str, job_id: str | None = None) -> list[Still]:
         made.append(st)
         if job_id:
             jobs.progress(job_id, done=i + 1)
-    return made
+    return {"made": made, "aborted": aborted}
 
 
 # ---------------------------------------------------------------- heroes
@@ -103,7 +112,10 @@ def heroes_generate(pid: str):
             continue
         shot = prompts.hero_shot(p, cls)
         hub = p.hub(shot.source_hub_id)
+        have = {h.variant for h in p.heroes if h.cls == cls}
         for v in (1, 2):
+            if v in have:          # a previous run already paid for this variant
+                continue
             st = _gen_still(p, shot, hub, out_dir,
                             corrections="" if v == 1 else "second variant: slightly cooler grade, mist thinner", attempt=v)
             h = Hero(**st.model_dump(), variant=v)
@@ -141,16 +153,25 @@ def stills_generate(pid: str, background: bool = False):
     p = get(pid)
     classes = {s.cls for s in p.plan.shots}
     gate(all(any(h.cls == c and h.chosen for h in p.heroes) for c in classes), "choose a hero for every class first")
-    gate(not jobs.active_for_project(pid), "a generation job is already running for this project")
     todo = [s for s in p.plan.shots
             if not any(x.shot_n == s.n and x.status in ("pending", "approved") for x in p.stills)]
-    if background:
+    job_id = new_id("job")
+    # check-and-register under the project lock: two requests must not both
+    # pass the gate and then each pay for the same shots
+    with project_lock(pid):
+        gate(not jobs.active_for_project(pid), "a generation job is already running for this project")
         jobs.prune()
-        job_id = new_id("job")
         jobs.create(job_id, pid, "stills", len(todo))
-        jobs.run_in_thread(job_id, lambda: _stills_batch(pid, job_id))
+    if background:
+        def work():
+            if _stills_batch(pid, job_id)["aborted"]:
+                raise RuntimeError("stopped after two consecutive provider failures")
+        jobs.run_in_thread(job_id, work)
         return {"job": jobs.get(job_id).as_dict()}
-    made = _stills_batch(pid)
+    try:
+        made = _stills_batch(pid, job_id)["made"]
+    finally:
+        jobs.finish(job_id)
     p = get(pid)
     return {"made": made, "stills": p.stills, "ledger": costs.summary(p)}
 
@@ -207,9 +228,6 @@ def stills_regenerate(pid: str, body: Regen):
         except KeyError:
             raise HTTPException(404, f"no shot {n}")
         prior = [s for s in p.stills if s.shot_n == n]
-        for s in prior:
-            if s.status == "pending":
-                s.status = "rejected"
         notes = "; ".join(x.note for x in prior if x.note)
         corr = body.corrections.get(n) or body.corrections.get(str(n)) or notes  # type: ignore[call-overload]
         hub = p.hub(shot.source_hub_id)
