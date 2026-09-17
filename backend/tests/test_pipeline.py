@@ -710,3 +710,70 @@ def test_still_generation_re_checks_the_gates(client):
     client.post(f"/api/projects/{pid}/plan/generate")   # clears approval and the budget
     r = client.post(f"/api/projects/{pid}/stills/generate")
     assert r.status_code == 409 and "plan" in r.json()["detail"].lower()
+
+
+# ----------------------------------------------------------------- access
+def _fresh_settings(tmp_path, monkeypatch):
+    """Point the settings store at an empty directory."""
+    from app import config, settings as S
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    S.reset_cache()
+    return S
+
+
+def test_an_unclaimed_instance_is_open_so_it_can_be_claimed(client):
+    r = client.get("/api/auth/state")
+    assert r.status_code == 200
+    assert r.json()["claimed"] is False
+
+
+def test_claiming_locks_the_instance_and_a_stranger_is_refused(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import config, settings as S
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
+    S.reset_cache()
+    from app.main import app
+    with TestClient(app) as c:
+        assert c.get("/api/auth/state").json()["claimed"] is False
+        assert c.post("/api/auth/claim", json={"code": "short"}).status_code == 400
+        assert c.post("/api/auth/claim", json={"code": "a-good-access-code"}).status_code == 200
+        st = c.get("/api/auth/state").json()
+        assert st["claimed"] is True and st["authed"] is True and st["settings"]["has_key"] in (True, False)
+        assert c.post("/api/auth/claim", json={"code": "another-one"}).status_code == 409
+
+    with TestClient(app) as stranger:            # no cookie
+        assert stranger.get("/api/auth/state").json()["claimed"] is True
+        assert stranger.get("/api/projects").status_code == 401
+        assert stranger.get("/files/anything.mp4").status_code == 401, "generated files must be gated too"
+        assert stranger.post("/api/auth/login", json={"code": "wrong"}).status_code == 401
+        assert stranger.post("/api/auth/login", json={"code": "a-good-access-code"}).status_code == 200
+        assert stranger.get("/api/projects").status_code == 200
+    S.reset_cache()
+
+
+def test_the_api_key_is_never_sent_back_to_the_browser(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import config, settings as S
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
+    S.reset_cache()
+    from app.main import app
+    secret = "fk-live-SUPERSECRET1234"
+    with TestClient(app) as c:
+        c.post("/api/auth/claim", json={"code": "a-good-access-code"})
+        r = c.put("/api/settings", json={"provider": "freepik", "freepik_api_key": secret})
+        assert r.status_code == 200
+        body = r.json()
+        assert secret not in str(body), "the key must never come back in full"
+        assert body["has_key"] is True and body["key_hint"].endswith("1234")
+        assert secret not in str(c.get("/api/settings").json())
+        assert secret not in str(c.get("/api/auth/state").json())
+        # and it drives the provider
+        from app.services.providers import get_provider, reset_provider
+        reset_provider()
+        assert get_provider().name == "freepik"
+        c.put("/api/settings", json={"provider": "mock"})
+        reset_provider()
+        assert get_provider().name == "mock"
+    S.reset_cache()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from . import config
+from . import settings as S
 from .models import Budget, LedgerEntry, Project
 
 
@@ -31,10 +32,10 @@ def estimate(p: Project) -> Budget:
         hero_images=hero_images,
         stills=n_shots,
         clips=n_shots,
-        image_cost=config.IMAGE_COST,
-        video_cost=config.VIDEO_COST,
+        image_cost=S.load().effective_image_cost(),
+        video_cost=S.load().effective_video_cost(),
     )
-    base = (hero_images + n_shots) * config.IMAGE_COST + clip_units * config.VIDEO_COST
+    base = (hero_images + n_shots) * b.image_cost + clip_units * b.video_cost
     b.reserve = round(base * config.RESERVE_FRACTION, 2)
     b.total = round(base + b.reserve, 2)
     b.confirmed = p.budget.confirmed

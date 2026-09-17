@@ -35,10 +35,12 @@ class FreepikProvider(Provider):
     name = "freepik"
 
     def __init__(self) -> None:
-        if not config.FREEPIK_API_KEY:
-            raise ProviderError("FREEPIK_API_KEY is not set")
+        from ... import settings as S
+        key = S.load().effective_key()
+        if not key:
+            raise ProviderError("no API key set; open Settings in the app and paste your Freepik key")
         self.client = httpx.Client(base_url=config.FREEPIK_BASE_URL, timeout=60,
-                                   headers={"x-freepik-api-key": config.FREEPIK_API_KEY, "Content-Type": "application/json"})
+                                   headers={"x-freepik-api-key": key, "Content-Type": "application/json"})
 
     def _submit_and_wait(self, path: str, payload: dict) -> list[str]:
         r = self.client.post(path, json=payload)

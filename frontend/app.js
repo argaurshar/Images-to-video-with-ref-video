@@ -13,15 +13,17 @@ let P = null;          // current project document
 let view = "intake";   // current stage view
 let health = {};
 let pendingIntake = null;   // questionnaire text held across a re-render
+let AUTH = { claimed: false, authed: false, settings: null };
 
 // ------------------------------------------------------------------ helpers
 async function api(path, opts = {}) {
-  const o = { method: opts.method || (opts.body ? "POST" : "GET"), headers: {} };
+  const o = { method: opts.method || (opts.body ? "POST" : "GET"), headers: {}, credentials: "same-origin" };
   if (opts.body instanceof FormData) o.body = opts.body;
   else if (opts.body !== undefined) { o.headers["Content-Type"] = "application/json"; o.body = JSON.stringify(opts.body); }
   const r = await fetch(path, o);
   const txt = await r.text();
   let data; try { data = JSON.parse(txt); } catch { data = txt; }
+  if (r.status === 401 && !path.startsWith("/api/auth/")) { AUTH.authed = false; rGate(); throw new Error("signed out"); }
   if (!r.ok) { const msg = (data && data.detail) ? (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)) : txt; throw new Error(msg); }
   return data;
 }
@@ -62,9 +64,78 @@ function hub(id) { return (P.hubs || []).find(h => h.id === id) || {}; }
 function shot(n) { return (P.plan.shots || []).find(s => s.n === n) || {}; }
 function fmt(x, d = 2) { return typeof x === "number" ? x.toFixed(d) : x; }
 
+// ------------------------------------------------------------------ access
+function rGate() {
+  const first = !AUTH.claimed;
+  el("steps").innerHTML = ""; el("spend").innerHTML = ""; el("projbar").innerHTML = "";
+  el("main").innerHTML = `
+    <div class="card" style="max-width:560px;margin:8vh auto">
+      <h2>${first ? "Claim this instance" : "Sign in"}</h2>
+      <p class="lead">${first
+        ? "This copy is new and unlocked. Set an access code now to lock it to you. It holds your API key and sits on a public address, so anyone who reached it before you claim it could spend your money."
+        : "Enter the access code you set when you claimed this instance."}</p>
+      <label class="f wide">access code<input id="gate_code" type="password" autocomplete="${first ? "new-password" : "current-password"}" placeholder="at least 8 characters"></label>
+      <div style="margin-top:12px"><button class="btn" id="gate_go">${first ? "Claim and continue" : "Sign in"}</button></div>
+      <p class="muted" style="margin-top:14px">Lost the code? It is stored as a hash and cannot be recovered. Delete settings.json from the data directory to reset.</p>
+    </div>`;
+  const go = () => busy(async () => {
+    const code = el("gate_code").value;
+    const r = await api(`/api/auth/${first ? "claim" : "login"}`, { body: { code } });
+    AUTH = { claimed: true, authed: true, settings: r.settings };
+    await renderProjectBar(); renderAll();
+    if (first) { toast("instance claimed"); openSettings(); }
+  });
+  el("gate_go").onclick = go;
+  el("gate_code").onkeydown = e => { if (e.key === "Enter") go(); };
+}
+
+async function openSettings() {
+  const st = await api("/api/settings");
+  modal(`<h3>Settings</h3>
+    <p class="muted">Stored on this server only. The key is never sent back to this browser, and never appears in the repository.</p>
+    <div class="row">
+      <label class="f">provider<select id="set_provider">
+        <option value="mock" ${st.provider === "mock" ? "selected" : ""}>Mock (free, simulated, nothing is charged)</option>
+        <option value="freepik" ${st.provider === "freepik" ? "selected" : ""}>Freepik (real generation, real money)</option>
+      </select></label>
+      <label class="f wide">Freepik API key<input id="set_key" type="password" placeholder="${st.has_key ? "set: " + esc(st.key_hint) + " — type to replace" : "paste your key"}"></label>
+    </div>
+    <div class="row">
+      <label class="f">cost per image<input id="set_ic" type="number" step="0.01" min="0" value="${st.image_cost}"></label>
+      <label class="f">cost per 5s clip<input id="set_vc" type="number" step="0.01" min="0" value="${st.video_cost}"></label>
+    </div>
+    ${st.key_from_env ? `<p class="muted">A key is currently coming from the server environment. Anything you paste here overrides it.</p>` : ""}
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="set_save">Save</button>
+      <button class="btn secondary" id="set_test">Test the key</button>
+      <button class="btn secondary" id="set_logout">Sign out</button>
+    </div>
+    <div id="set_result" class="muted" style="margin-top:10px"></div>`);
+  el("set_save").onclick = () => busy(async () => {
+    const body = { provider: el("set_provider").value, image_cost: +el("set_ic").value, video_cost: +el("set_vc").value };
+    const k = el("set_key").value; if (k) body.freepik_api_key = k;
+    const r = await api("/api/settings", { method: "PUT", body });
+    AUTH.settings = r; el("set_result").textContent = "Saved.";
+    toast("settings saved");
+    await renderProjectBar();      // the provider badge lives here
+    renderSpend();
+  });
+  el("set_test").onclick = () => busy(async () => {
+    const r = await api("/api/settings/test", { method: "POST" });
+    el("set_result").textContent = r.detail;
+  });
+  el("set_logout").onclick = () => busy(async () => {
+    await api("/api/auth/logout", { method: "POST" });
+    AUTH = { claimed: true, authed: false, settings: null }; closeModal(); rGate();
+  });
+}
+window.openSettings = openSettings;
+
 // ------------------------------------------------------------------ frame
 async function init() {
   health = await api("/api/health").catch(() => ({}));
+  try { AUTH = await api("/api/auth/state"); } catch { AUTH = { claimed: false, authed: false }; }
+  if (!AUTH.claimed || !AUTH.authed) { rGate(); return; }
   await renderProjectBar();
   renderAll();
 }
@@ -73,7 +144,8 @@ async function renderProjectBar() {
   const bar = el("projbar");
   bar.innerHTML = `<select id="projsel"><option value="">Open a project…</option>${list.map(p => `<option value="${p.id}" ${P && P.id === p.id ? "selected" : ""}>${esc(p.name)} · ${esc(p.stage)}</option>`).join("")}</select>
     <input id="newname" placeholder="New project name" style="width:200px"><button class="btn small" id="newbtn">Create</button>
-    <span class="muted">provider: <b>${esc(health.provider || "?")}</b></span>`;
+    <span class="muted">provider: <b>${esc((AUTH.settings && AUTH.settings.provider) || health.provider || "?")}</b></span>
+    <button class="btn small secondary" onclick="openSettings()">Settings</button>`;
   el("projsel").onchange = async e => { if (e.target.value) { P = await api(`/api/projects/${e.target.value}`); view = P.stage === "delivered" ? "render" : (P.stage || "intake"); renderAll(); } };
   el("newbtn").onclick = () => busy(async () => { P = await api("/api/projects", { body: { name: el("newname").value } }); view = "intake"; await renderProjectBar(); renderAll(); });
 }
