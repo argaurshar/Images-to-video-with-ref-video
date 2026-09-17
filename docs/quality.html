@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quality control — ArchViz Cinematic Engine</title>
+<meta name="description" content="The eight measurements run on every clip before it is shown, what each one catches, and the known model limit the engine refuses to fight.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22%23d9b46a%22/></svg>">
+</head>
+<body>
+<header class="nav"><div class="wrap">
+  <a class="brand" href="index.html"><span class="dot"></span> ArchViz Cinematic Engine</a>
+  <nav><a href="index.html">Overview</a><a href="how-it-works.html">How it works</a><a href="running.html">Run it</a><a href="quality.html" aria-current="page">Quality control</a><a href="limits.html">Limits</a></nav>
+</div></header>
+
+
+<div class="hero"><div class="wrap">
+  <h1>Quality control</h1>
+  <p class="lede">Every clip is measured before you see it. A clip is never called good because it looked good in a thumbnail.</p>
+</div></div>
+
+<section><div class="wrap">
+  <h2>What is measured, and what it catches</h2>
+  <table>
+    <tr><th>Metric</th><th>Pass</th><th>What a failure means</th></tr>
+    <tr><td>Motion score</td><td>1.5 to 8.0</td><td>Under 1.0 is a dead clip: the still had nothing to animate. Over 8.0 means the camera or the weather is doing too much.</td></tr>
+    <tr><td>Frozen ratio</td><td>below 0.35</td><td>Particle marks that are still in the same place in later frames. Above 0.5 is a painted overlay standing still, which means the motion cue was too heavy.</td></tr>
+    <tr><td>Particle density</td><td>3 to 10 percent</td><td>Measured only in open sky, or in the glazing band of an interior. Above 12 percent, the model invented its own downpour.</td></tr>
+    <tr><td>Geometry drift</td><td>no structural change</td><td>First frame against last, with moving particles excluded. Catches a building that changed shape mid-clip.</td></tr>
+    <tr><td>Region check</td><td>all regions non-zero</td><td>Motion fine but only in one region means the camera moved and the world did not.</td></tr>
+    <tr><td>Vertical drift</td><td>under 1 degree</td><td>The room or facade is leaning. Unusable for a designer. Says so explicitly when there are no verticals to measure.</td></tr>
+    <tr><td>Exposure and colour drift</td><td>6 percent, 8 degrees</td><td>The clip will pop at the cut.</td></tr>
+    <tr><td>Text check</td><td>none</td><td>Glyph-like clusters that are not in the source still, which usually means a watermark crept in.</td></tr>
+  </table>
+</div></section>
+
+<section><div class="wrap">
+  <h2>The fidelity audit</h2>
+  <p>Separately from motion, every generated still is compared against the render it came from: structural similarity of the edges, the fraction of edges with no counterpart in the original, and the shifts in luminance and hue. Each is rated pass, minor or fail, with the item that drove the rating named.</p>
+  <p>Exteriors and interiors get different checklists, because they fail differently.</p>
+  <div class="grid">
+    <div class="card"><h3>Exterior</h3><p>Floor count, window rhythm per elevation, door positions, roof geometry, material reading, canopies, site walls and steps, road alignment, tree positions, canvas not extended.</p></div>
+    <div class="card"><h3>Interior</h3><p>Room proportion and ceiling height, opening count and position, joinery runs and door counts, fixture counts, furniture positions, finish colours and grain direction, artwork, flooring pattern, verticals true.</p></div>
+  </div>
+  <div class="note"><strong>These are proxies, not proof.</strong> A season change legitimately moves foliage, snow and shadow edges, so the thresholds are lenient and the rating is advisory. A designer still runs the checklist by eye before approving a still.</div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>The limit the engine refuses to fight</h2>
+  <p>Image-to-video models animate reliably when there is one clear moving element near camera: an eave, an entrance, a foreground tree, a curtain, a pair of hands. On wide, distant, evenly-detailed elevations, and on interiors with no soft element, they either freeze the texture or invent weather against an explicit instruction not to.</p>
+  <p>So after <b>two</b> failed attempts on such a shot the engine stops and recommends cutting it, or re-shooting it dry with no precipitation at all. It does not burn a third attempt, and it will not let a free-text note evade that count.</p>
+</div></section>
+<footer><div class="wrap">
+  <p><a href="https://github.com/argaurshar/Images-to-video-with-ref-video">Source on GitHub</a> · <a href="https://github.com/argaurshar/Images-to-video-with-ref-video/blob/claude/app-md-review-enhance-its81i/SPEC.md">The full specification</a></p>
+  <p>Screenshots show the app running on its mock provider with synthetic test renders, so the buildings are placeholder shapes. The interface, the measurements and the numbers are real.</p>
+</div></footer>
+</body>
+</html>

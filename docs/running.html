@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run it — ArchViz Cinematic Engine</title>
+<meta name="description" content="Three ways to run the engine: a GitHub Codespace, an always-on container host, or your own machine.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22%23d9b46a%22/></svg>">
+</head>
+<body>
+<header class="nav"><div class="wrap">
+  <a class="brand" href="index.html"><span class="dot"></span> ArchViz Cinematic Engine</a>
+  <nav><a href="index.html">Overview</a><a href="how-it-works.html">How it works</a><a href="running.html" aria-current="page">Run it</a><a href="quality.html">Quality control</a><a href="limits.html">Limits</a></nav>
+</div></header>
+
+
+<div class="hero"><div class="wrap">
+  <h1>Run it</h1>
+  <p class="lede">A Codespace on GitHub, an always-on host, or your own machine. In every case the API key is set inside the app, not in a dashboard.</p>
+  <div class="cta"><a class="btn" href="https://github.com/codespaces/new?repo=argaurshar/Images-to-video-with-ref-video&ref=claude/app-md-review-enhance-its81i">Open in a Codespace</a></div>
+</div></div>
+
+<section><div class="wrap">
+  <h2>On GitHub, in a Codespace</h2>
+  <p class="sub">The app runs unchanged on GitHub&rsquo;s own container host. Nothing installed.</p>
+  <ol class="steps">
+    <li><b>Open a codespace</b><p>Use the button above, or from the repo page choose Code, the Codespaces tab, then Create codespace.</p></li>
+    <li><b>Wait for the build</b><p>GitHub builds the container, installs the dependencies and starts the server on port 8000. The first build takes a few minutes because it installs OpenCV.</p></li>
+    <li><b>Open the forwarded URL</b><p>Click the app.github.dev link it shows you.</p></li>
+    <li><b>Claim it, then add your key</b><p>Set an access code, then paste your Freepik key under Settings and press Test the key.</p></li>
+  </ol>
+  <div class="note"><strong>Private by default.</strong> The forwarded port is visible only to you, signed in to GitHub. That is deliberate, because the instance holds a paid API key. To send a client a link, open the Ports panel, right-click port 8000, choose Port Visibility, then Public.</div>
+  <h3>What it costs</h3>
+  <p>A personal GitHub Free account includes about 120 core-hours a month, roughly 60 hours on the default two-core machine, plus 15 GB of storage.</p>
+  <ul>
+    <li>A codespace <b>stops after 30 minutes idle</b>. A long clip batch is interrupted if you close the tab. That is survivable here: storage persists and batches resume where they stopped, so nothing is paid for twice.</li>
+    <li>Storage keeps billing while a codespace exists, even stopped. Delete it when a project is finished.</li>
+  </ul>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Always on, for an address that stays live</h2>
+  <p class="sub">A Codespace is for working on projects yourself. For a URL that is up without anyone opening anything, deploy the same repo to a container host.</p>
+  <h3>Render</h3>
+  <p>Sign in with GitHub, choose <b>New</b>, then <b>Blueprint</b>, connect the repository and pick the branch. Render reads the blueprint in the repo and builds the container.</p>
+  <div class="note warn"><strong>Do not use the one-click Deploy to Render button for this repo.</strong> It is known to fail with &ldquo;No render.yaml file found on main branch&rdquo; when a repository&rsquo;s default branch is not main, which is the case here. Use the dashboard flow, where the branch is a dropdown.</div>
+  <div class="note warn"><strong>Do not put a paid API key on a free plan.</strong> A free instance sleeps after about fifteen idle minutes, and this app does its work in background threads rather than holding the request open. A long batch only survives while a tab is polling it, and a free plan has no persistent disk, so clips you already paid for are lost when it suspends.</div>
+  <table>
+    <tr><th></th><th>Free</th><th>Starter plus disk</th></tr>
+    <tr><td>Cost</td><td>$0, no card</td><td>about $9.50 a month</td></tr>
+    <tr><td>Work survives a restart</td><td>No</td><td>Yes</td></tr>
+    <tr><td>Sleeps when idle</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Safe with a paid key</td><td><b>No</b></td><td>Yes</td></tr>
+  </table>
+  <h3>Railway</h3>
+  <p>Around $5 a month on the Hobby plan, cheaper than Render&rsquo;s paid tier. The repo ships a <code>railway.json</code> so the build is described. The difference is that Railway does not create the disk for you: after the first deploy you add a Volume mounted at <code>/data</code> and set <code>ARCHVIZ_DATA_DIR=/data</code>.</p>
+  <p class="muted">On either host, 512 MB of RAM is tight for ffmpeg and OpenCV holding 1080p frames. If a render dies with an out-of-memory error, raise the instance size rather than shortening the film.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Setting the key, and locking the instance</h2>
+  <figure><img src="img/gate.png" alt="The claim screen, asking the first visitor to set an access code">
+    <figcaption>A deployed copy holds a paid API key on a public address, so the first visitor claims it with an access code. After that every request needs a session, and generated films are covered by the same lock, not just the pages.</figcaption></figure>
+  <figure><img src="img/settings.png" alt="The settings panel with provider, API key, and per-image and per-clip costs">
+    <figcaption>The provider, the key and your actual per-image and per-clip costs are all set here, so the budget gate matches your real contract. The key is stored on your own instance and only ever read back as a masked hint; it never appears in the repository and never returns to the browser.</figcaption></figure>
+  <div class="note"><strong>Start on the mock provider.</strong> It costs nothing and still runs the planner, the fidelity audit, the QC suite and the ffmpeg render for real, so you can rehearse a whole project before spending anything.</div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>On your own machine</h2>
+  <pre><code>git clone https://github.com/argaurshar/Images-to-video-with-ref-video
+cd Images-to-video-with-ref-video
+pip install -r requirements.txt
+./run.sh            # http://127.0.0.1:8000</code></pre>
+  <p>Or with Docker:</p>
+  <pre><code>docker build -t archviz .
+docker run -p 8000:8000 -v archviz-data:/data archviz</code></pre>
+  <p><b>Run a single worker.</b> The batch job registry lives in the process, so a second worker would not see a running job and could start a duplicate batch and pay twice.</p>
+</div></section>
+<footer><div class="wrap">
+  <p><a href="https://github.com/argaurshar/Images-to-video-with-ref-video">Source on GitHub</a> · <a href="https://github.com/argaurshar/Images-to-video-with-ref-video/blob/claude/app-md-review-enhance-its81i/SPEC.md">The full specification</a></p>
+  <p>Screenshots show the app running on its mock provider with synthetic test renders, so the buildings are placeholder shapes. The interface, the measurements and the numbers are real.</p>
+</div></footer>
+</body>
+</html>

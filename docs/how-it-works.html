@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works — ArchViz Cinematic Engine</title>
+<meta name="description" content="The nine stages, from uploading renders to the finished film, with the rules the planner applies at each one.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22%23d9b46a%22/></svg>">
+</head>
+<body>
+<header class="nav"><div class="wrap">
+  <a class="brand" href="index.html"><span class="dot"></span> ArchViz Cinematic Engine</a>
+  <nav><a href="index.html">Overview</a><a href="how-it-works.html" aria-current="page">How it works</a><a href="running.html">Run it</a><a href="quality.html">Quality control</a><a href="limits.html">Limits</a></nav>
+</div></header>
+
+
+<div class="hero"><div class="wrap">
+  <h1>How it works</h1>
+  <p class="lede">Nine stages. You approve every one, and nothing expensive happens before you do.</p>
+</div></div>
+
+<section><div class="wrap">
+  <h2>1. Intake</h2>
+  <figure><img src="img/intake.png" alt="The intake screen: uploaded renders with detected properties, and the project questionnaire">
+    <figcaption>Upload one to eight renders. The app detects whether each is exterior or interior along with its light state, and you name the actual finishes so prompts use your words rather than invented ones. Stating which way an exterior camera faces is what puts the sun on the correct side of the building.</figcaption></figure>
+  <h3>What the questionnaire changes</h3>
+  <table>
+    <tr><th>You choose</th><th>What it drives</th></tr>
+    <tr><td>Location</td><td>Climate, hemisphere, vegetation, wet and snow months, and the sun path. Required, because generic prompts give generic results.</td></tr>
+    <tr><td>Orientation</td><td>Which side the sun falls on, per shot and per time of day.</td></tr>
+    <tr><td>End use</td><td>Defaults. Planning consultation turns people off, restrains the weather and puts the disclaimer on every frame.</td></tr>
+    <tr><td>Design intents</td><td>The three things you most want the client to notice. Each becomes a shot. A time word inside one sets that shot&rsquo;s time.</td></tr>
+    <tr><td>Interior emphasis</td><td>Preferred times, artificial lighting state and the room cue baked into interior shots.</td></tr>
+  </table>
+</div></section>
+
+<section><div class="wrap">
+  <h2>2. Direction: a brief, or a reference film</h2>
+  <figure><img src="img/reference.png" alt="Reference video analysis: technical readout, colour statistics, light arc and a shot log">
+    <figcaption>A reference film is measured, not watched. Shot detection, per-shot length, the light arc, colour statistics, weather density and the inside-outside rhythm all come out as numbers.</figcaption></figure>
+  <p>What the measurement then drives:</p>
+  <table>
+    <tr><th>Measured</th><th>Drives</th></tr>
+    <tr><td>Per-shot length</td><td>Each clip&rsquo;s own duration, clamped to 2 to 10 seconds</td></tr>
+    <tr><td>Inside and outside pattern</td><td>Whether each shot is exterior or interior</td></tr>
+    <tr><td>Per-shot scale</td><td>The scale of each shot, subject to the never-three-in-a-row rule, which still wins</td></tr>
+    <tr><td>Light-arc <em>shape</em></td><td>The time arc. A falling curve runs afternoon to night, a rising one dawn to afternoon.</td></tr>
+  </table>
+  <div class="note"><strong>Structure is copied; colour is not.</strong> A reference film&rsquo;s grade belongs to its own climate. A Japanese cedar forest is warm and olive; a Himalayan slate house under monsoon is cool and blue-grey. Matching the grade to the wrong site is the most common way these films look wrong.</div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>3. The shot plan</h2>
+  <figure><img src="img/plan.png" alt="The shot plan table with class, season, time, scale, source render, duration, motion cue and design intent for each shot">
+    <figcaption>A deterministic planner, so a change to the brief has a predictable effect on the plan. Every row is editable before anything is generated.</figcaption></figure>
+  <ul>
+    <li><b>Scale pyramid.</b> Wide, medium, detail, then back out. Never three of the same scale in a row.</li>
+    <li><b>One arc per axis.</b> A year runs in calendar order for the site&rsquo;s hemisphere; a day runs dawn to night; both run the same direction.</li>
+    <li><b>Chapter closers.</b> Each season block ends on its widest shot.</li>
+    <li><b>Human beats at the edges</b>, never clumped in the middle.</li>
+    <li><b>One heavy weather beat</b> at most. The rest stay restrained.</li>
+    <li><b>Approach, enter, dwell, detail, return</b> when both exteriors and interiors exist.</li>
+  </ul>
+</div></section>
+
+<section><div class="wrap">
+  <h2>4. The hero gate</h2>
+  <figure><img src="img/hero-gate.png" alt="Two hero variants side by side with their fidelity audit ratings and checklists">
+    <figcaption>Two variants of the signature frame per class. Each is audited against its source render and rated, with the checklist a designer runs by eye. The one you pick becomes the palette and lighting reference for the whole film. A hard stop until you choose.</figcaption></figure>
+</div></section>
+
+<section><div class="wrap">
+  <h2>5. The still board</h2>
+  <figure><img src="img/still-board.png" alt="A numbered grid of generated stills with their source render, state and audit rating">
+    <figcaption>Every still comes from its hub render, never from another generation. Approve all, approve some, or reject specific numbers. Only rejected numbers are regenerated, and the reason you give becomes an explicit exclusion in the retry prompt.</figcaption></figure>
+  <div class="note"><strong>Light motion cues only.</strong> Image-to-video models animate only what is already visibly moving in the still. But over-correcting is worse: heavy painted rain gets held static and reads as a frozen plastic overlay. A few sparse streaks near camera, drips from one eave, one wisp of mist.</div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>6. Clips, each one measured</h2>
+  <figure><img src="img/clips-qc.png" alt="The clips table with per-clip quality control metrics and pass badges">
+    <figcaption>Every clip is scored before it is shown. A failure is named with its cause, and a regeneration has to change something real: the camera, the cue weight, or the weather. After two attempts the engine recommends cutting the shot rather than burning a third.</figcaption></figure>
+  <p><a href="quality.html">What each metric measures, and why</a>.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>7 to 9. Sequence, branding, delivery</h2>
+  <figure><img src="img/sequence.png" alt="The sequence editor with draggable clip thumbnails and a brightness strip">
+    <figcaption>A suggested order with its reasoning, then drag freely. The strip shows the light arc, and warnings flag three same-scale shots in a row or a continuity break inside a chapter.</figcaption></figure>
+  <figure><img src="img/render.png" alt="The delivery screen with verification numbers and download links">
+    <figcaption>The render is verified, not assumed: duration against what was planned, resolution, the brightness arc and measured loudness. Then the film, crop-only variants, the stills pack and the project record.</figcaption></figure>
+</div></section>
+<footer><div class="wrap">
+  <p><a href="https://github.com/argaurshar/Images-to-video-with-ref-video">Source on GitHub</a> · <a href="https://github.com/argaurshar/Images-to-video-with-ref-video/blob/claude/app-md-review-enhance-its81i/SPEC.md">The full specification</a></p>
+  <p>Screenshots show the app running on its mock provider with synthetic test renders, so the buildings are placeholder shapes. The interface, the measurements and the numbers are real.</p>
+</div></footer>
+</body>
+</html>

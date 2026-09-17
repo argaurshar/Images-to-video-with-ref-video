@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Limits — ArchViz Cinematic Engine</title>
+<meta name="description" content="What the engine cannot do, stated plainly: it is a visualisation and not a daylight study, its measurements are proxies, and its sun path is approximated.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22%23d9b46a%22/></svg>">
+</head>
+<body>
+<header class="nav"><div class="wrap">
+  <a class="brand" href="index.html"><span class="dot"></span> ArchViz Cinematic Engine</a>
+  <nav><a href="index.html">Overview</a><a href="how-it-works.html">How it works</a><a href="running.html">Run it</a><a href="quality.html">Quality control</a><a href="limits.html" aria-current="page">Limits</a></nav>
+</div></header>
+
+
+<div class="hero"><div class="wrap">
+  <h1>Limits</h1>
+  <p class="lede">What this is not. Worth reading before a film goes in front of a planning officer.</p>
+</div></div>
+
+<section><div class="wrap">
+  <h2>It is a visualisation, not a simulation</h2>
+  <p>Nothing the engine produces is a daylight study, a solar analysis, a planning elevation or a construction document. Sun direction is approximated from the compass heading you state and the time of day, not calculated from the date and latitude.</p>
+  <p>Every deliverable carries an <b>Artist&rsquo;s impression</b> line by default, and a project-stage stamp when you ask for one. When the end use is planning or neighbour consultation, the disclaimer goes on every frame, people are turned off and the weather is restrained.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Where judgement stays with you</h2>
+  <ul>
+    <li>The fidelity audit and the QC metrics are numeric proxies. They catch gross drift and painted overlays, not a subtly wrong window reveal.</li>
+    <li>A material or finish change is a design decision. It belongs in your render tool, not in this engine, which only ever changes light, weather, season, occupancy and framing.</li>
+    <li>Aspect ratio changes are crops, never outpaints, because generating new canvas invents site and sky you did not draw. If a crop would cut something important the app offers a nearer ratio instead.</li>
+    <li>The built-in ambience bed is a placeholder. Upload real beds and a score on the branding page.</li>
+    <li>Reference audio analysis reports only whether a track exists. Narration against ambience is a judgement you make by ear.</li>
+  </ul>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Operational limits</h2>
+  <ul>
+    <li><b>Run a single worker.</b> The batch job registry lives in the process, so a second worker would not see a running job and could start a duplicate, paid batch.</li>
+    <li><b>Long batches need a host that stays awake.</b> Generation runs in background threads and the request returns immediately, so a platform that sleeps when idle can suspend a batch part-way.</li>
+    <li><b>Location research falls back.</b> A built-in table covers the Bay Area, India, the Himalaya, the UK, Japan, Australia and the Gulf. Anywhere else gets a generic temperate profile, and the plan says so rather than pretending.</li>
+    <li><b>Provider model names move.</b> The endpoint paths are environment variables for that reason; check them against the current API reference before a paid run.</li>
+  </ul>
+</div></section>
+
+<section><div class="wrap">
+  <h2>What it is good at</h2>
+  <p>Showing a client, a contractor or a jury how a building you have already designed reads across a year, a day, or the weather of its actual site, without the model quietly redesigning it. Every stage is approved by you, any single image or clip can be regenerated without rebuilding the rest, and the project record says exactly what was made, from what, and at what cost.</p>
+  <p><a href="how-it-works.html">See how it works</a> &middot; <a href="running.html">Run it</a></p>
+</div></section>
+<footer><div class="wrap">
+  <p><a href="https://github.com/argaurshar/Images-to-video-with-ref-video">Source on GitHub</a> · <a href="https://github.com/argaurshar/Images-to-video-with-ref-video/blob/claude/app-md-review-enhance-its81i/SPEC.md">The full specification</a></p>
+  <p>Screenshots show the app running on its mock provider with synthetic test renders, so the buildings are placeholder shapes. The interface, the measurements and the numbers are real.</p>
+</div></footer>
+</body>
+</html>
