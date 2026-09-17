@@ -88,5 +88,6 @@ class FreepikProvider(Provider):
                    "duration": str(billed), "cfg_scale": 0.5}
         urls = self._submit_and_wait(config.FREEPIK_VIDEO_PATH, payload)
         self._download(urls[0], out)
-        note = "" if abs(billed - seconds) < 0.05 else f"asked for {seconds:.1f}s, provider billed {billed}s"
-        return GenResult(path=out, provider_id=urls[0], cost=config.VIDEO_COST * (billed / 5.0), note=note)
+        note = "" if abs(billed - seconds) < 0.05 else f"asked for {seconds:.1f}s, provider produced and billed {billed}s"
+        return GenResult(path=out, provider_id=urls[0], cost=config.VIDEO_COST * (billed / 5.0),
+                         note=note, seconds=float(billed))

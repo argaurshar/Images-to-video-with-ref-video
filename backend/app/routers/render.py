@@ -59,8 +59,14 @@ def upload_audio(pid: str, kind: str, file: UploadFile = File(...)):
 @router.post("/render")
 def render(pid: str, crops: str = ""):
     p = get(pid)
+    from .sequence import _reconcile
+    _reconcile(p)          # an approved clip missing from a stale order must not be dropped
     by_id = {c.id: c for c in p.clips}
+    known = {s.n for s in p.plan.shots}
     ordered = [by_id[i] for i in p.sequence.order if i in by_id and by_id[i].status == "approved"]
+    orphans = [c.shot_n for c in ordered if c.shot_n not in known]
+    gate(not orphans, f"clips for shot(s) {sorted(set(orphans))} no longer match the plan; "
+                      f"re-generate the plan or those clips before rendering")
     gate(bool(ordered), "sequence at least one approved clip first")
     if not p.branding.project_name:
         p.branding.project_name = p.intake.project_name or p.name

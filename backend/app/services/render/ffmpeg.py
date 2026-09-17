@@ -15,6 +15,13 @@ from ... import config
 from ...models import Branding, Clip, Project
 
 RES = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080), "4:5": (1080, 1350)}
+
+# Every audio stream in the pipeline is pinned to this rate. The concat demuxer
+# initialises its decoder from the first file, so a card at one rate in front of
+# a film at another silently drops every audio packet and still exits 0.
+# loudnorm quietly switches to dynamic mode (192 kHz) whenever it cannot hit the
+# target linearly, which is what used to make the rates disagree.
+AUDIO_RATE = 48000
 FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
@@ -43,6 +50,24 @@ def _font(size: int) -> ImageFont.ImageFont:
 
 def _spaced(s: str) -> str:
     return " ".join(s.upper()) if s and len(s) < 40 else s
+
+
+def audio_rate(path: Path) -> int | None:
+    """Sample rate of a file's first audio stream, or None if it has none."""
+    err = subprocess.run([ffmpeg(), "-i", str(path)], capture_output=True, text=True, timeout=120).stderr
+    m = re.search(r"Audio: .*?, (\d+) Hz", err)
+    return int(m.group(1)) if m else None
+
+
+def clip_seconds(path: Path) -> float:
+    """The real duration of a file on disk. A provider may return a different
+    length from the one requested (Freepik snaps to 5 or 10 s), so every
+    timing decision in the render must come from the file, never the plan."""
+    cap = cv2.VideoCapture(str(path))
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    cap.release()
+    return round(n / fps, 3) if fps else 0.0
 
 
 def normalise_clip(src: Path, dst: Path, aspect: str) -> None:
@@ -90,6 +115,10 @@ def title_card_png(b: Branding, aspect: str, out: Path, which: str = "start") ->
     if b.year:
         tw = d.textlength(b.year, font=f_small)
         d.text((w - tw - int(48 * scale), int(48 * scale)), b.year, font=f_small, fill=dim)
+    if b.disclaimer:
+        f_disc = _font(int(22 * scale))
+        dw = d.textlength(b.disclaimer, font=f_disc)
+        d.text(((w - dw) // 2, h - int(96 * scale)), b.disclaimer, font=f_disc, fill=(255, 255, 255, 140))
     if b.stage_stamp:
         f_stamp = _font(int(28 * scale))
         tw = d.textlength(b.stage_stamp.upper(), font=f_stamp)
@@ -119,7 +148,7 @@ def disclaimer_png(b: Branding, aspect: str, out: Path) -> Path:
     return out
 
 
-def ambience_bed(clips: list[Clip], out: Path, beds: dict[str, str]) -> None:
+def ambience_bed(clips: list[Clip], out: Path, beds: dict[str, str], seconds: list[float] | None = None) -> None:
     """One audio segment per clip (room tone for interiors, outdoor bed for
     exteriors), short fades so cuts do not click, then a score mixed low if
     one was uploaded. Synthetic beds are placeholders: upload real ones."""
@@ -129,7 +158,7 @@ def ambience_bed(clips: list[Clip], out: Path, beds: dict[str, str]) -> None:
     for i, c in enumerate(clips):
         seg = tmpdir / f"seg_{i:03d}.wav"
         src = beds.get(c.cls)
-        d = max(0.5, float(c.duration))
+        d = max(0.5, float(seconds[i] if seconds else c.duration))
         if src and Path(src).exists():
             inp = ["-stream_loop", "-1", "-i", src]
             af = f"atrim=0:{d},afade=t=in:d=0.3,afade=t=out:st={d-0.3}:d=0.3"
@@ -143,11 +172,11 @@ def ambience_bed(clips: list[Clip], out: Path, beds: dict[str, str]) -> None:
     lst.write_text("".join(f"file '{s.resolve()}'\n" for s in segs))
     bed = tmpdir / "bed.wav"
     run([ffmpeg(), "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(bed)])
-    total = sum(max(0.5, float(c.duration)) for c in clips)
+    total = sum(max(0.5, float(x)) for x in (seconds or [c.duration for c in clips]))
     score = beds.get("score")
     if score and Path(score).exists():
         run([ffmpeg(), "-y", "-loglevel", "error", "-i", str(bed), "-stream_loop", "-1", "-i", score, "-t", f"{total}",
-             "-filter_complex", "[1:a]volume=0.32,afade=t=out:st=%s:d=3[s];[0:a][s]amix=inputs=2:duration=first:normalize=0[a]" % (total - 3),
+             "-filter_complex", "[1:a]volume=0.32,afade=t=out:st=%s:d=3[s];[0:a][s]amix=inputs=2:duration=first:normalize=0[a]" % max(0.0, total - 3),
              "-map", "[a]", "-ar", "48000", str(out)])
     else:
         run([ffmpeg(), "-y", "-loglevel", "error", "-i", str(bed), "-af", f"afade=t=out:st={max(0, total-3)}:d=3", str(out)])
@@ -192,16 +221,18 @@ def final_render(p: Project, clips: list[Clip], out_dir: Path) -> tuple[Path, di
     out_dir.mkdir(parents=True, exist_ok=True)
     from ...store import abs_path
     norm = []
+    real_seconds = []
     for i, c in enumerate(clips):
         dst = out_dir / f"norm_{i:03d}.mp4"
         normalise_clip(abs_path(c.path), dst, aspect)
         norm.append(dst)
+        real_seconds.append(clip_seconds(dst) or max(0.5, float(c.duration)))
     video = out_dir / "film_video.mp4"
     concat(norm, video)
-    total = sum(max(0.5, float(c.duration)) for c in clips)
+    total = sum(real_seconds)
 
     audio = out_dir / "film_audio.wav"
-    ambience_bed(clips, audio, {k: str(abs_path(v)) for k, v in p.audio_beds.items()})
+    ambience_bed(clips, audio, {k: str(abs_path(v)) for k, v in p.audio_beds.items()}, real_seconds)
 
     b = p.branding
     inputs = ["-i", str(video), "-i", str(audio)]
@@ -231,7 +262,7 @@ def final_render(p: Project, clips: list[Clip], out_dir: Path) -> tuple[Path, di
     film = out_dir / "film.mp4"
     run([ffmpeg(), "-y", "-loglevel", "error", *inputs, "-filter_complex", ";".join(fc),
          "-map", f"[{cur}]", "-map", "[a]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
-         "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(film)])
+         "-c:a", "aac", "-b:a", "192k", "-ar", str(AUDIO_RATE), "-shortest", "-movflags", "+faststart", str(film)])
     if b.style == "card" and b.title_position != "none":
         film = _wrap_with_cards(p, film, out_dir, aspect, total)
 
@@ -252,20 +283,25 @@ def _wrap_with_cards(p: Project, film: Path, out_dir: Path, aspect: str, total: 
     b = p.branding
     parts = []
     w, h = RES[aspect]
+    # match the film rather than assume: belt and braces against the concat
+    # decoder mismatch that silently destroys the soundtrack
+    rate = audio_rate(film) or AUDIO_RATE
     for which in ("start", "end"):
         if b.title_position in (which, "both"):
             png = title_card_png(b, aspect, out_dir / f"card_{which}.png", which)
             mp4 = out_dir / f"card_{which}.mp4"
-            run([ffmpeg(), "-y", "-loglevel", "error", "-loop", "1", "-i", str(png), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+            # title_card_png already draws b.disclaimer, so these frames carry
+            # it too and the every-frame requirement holds across the cards
+            run([ffmpeg(), "-y", "-loglevel", "error", "-loop", "1", "-i", str(png), "-f", "lavfi", "-i", f"anullsrc=r={rate}:cl=stereo",
                  "-t", "3", "-vf", f"format=yuv420p,fade=t=in:d=0.6,fade=t=out:st=2.4:d=0.6", "-r", str(config.OUTPUT_FPS),
-                 "-c:v", "libx264", "-crf", "18", "-c:a", "aac", "-shortest", str(mp4)])
+                 "-c:v", "libx264", "-crf", "18", "-c:a", "aac", "-ar", str(rate), "-shortest", str(mp4)])
             parts.append((which, mp4))
     seq = [m for w_, m in parts if w_ == "start"] + [film] + [m for w_, m in parts if w_ == "end"]
     out = out_dir / "film_cards.mp4"
     lst = out_dir / "cards_list.txt"
     lst.write_text("".join(f"file '{x.resolve()}'\n" for x in seq))
     run([ffmpeg(), "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(lst), "-c:v", "libx264", "-crf", "18",
-         "-c:a", "aac", "-movflags", "+faststart", str(out)])
+         "-c:a", "aac", "-ar", str(rate), "-movflags", "+faststart", str(out)])
     return out
 
 

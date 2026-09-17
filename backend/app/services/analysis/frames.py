@@ -164,10 +164,17 @@ def new_edge_fraction(g_ref: np.ndarray, g_new: np.ndarray, tol_px: int = 4) -> 
     return float((e_new & ~d_ref).sum() / n) if n else 0.0
 
 
-def vertical_angle_deg(g: np.ndarray) -> float | None:
+def vertical_angle_deg(g: np.ndarray, exclude: np.ndarray | None = None) -> float | None:
     """Median angle of near-vertical lines, in degrees from vertical.
-    None if no vertical structure is found."""
+    None if no vertical structure is found.
+
+    `exclude` masks out pixels that are not building structure. Rain and snow
+    are near-vertical and long by construction, so without this the very
+    content the product animates gets measured as a leaning facade.
+    """
     e = edge_map(g).astype(np.uint8) * 255
+    if exclude is not None:
+        e[exclude] = 0
     lines = cv2.HoughLinesP(e, 1, np.pi / 360, threshold=50,
                             minLineLength=max(30, g.shape[0] // 3), maxLineGap=4)
     if lines is None:

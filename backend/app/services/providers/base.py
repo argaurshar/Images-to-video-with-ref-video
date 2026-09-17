@@ -10,6 +10,7 @@ class GenResult:
     provider_id: str = ""
     cost: float = 0.0
     note: str = ""
+    seconds: float = 0.0   # what was actually produced, when it differs from the request
 
 
 class Provider:

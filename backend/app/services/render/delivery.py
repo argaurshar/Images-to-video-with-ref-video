@@ -11,6 +11,16 @@ from ...models import Project
 from ...store import abs_path
 
 
+def _shot_or_none(p: Project, n):
+    """A still keeps the shot number it was generated with, but the plan can be
+    regenerated or renumbered underneath it. A missing shot must not take the
+    whole delivery down after ffmpeg has already run."""
+    try:
+        return p.shot(n) if n else None
+    except KeyError:
+        return None
+
+
 def stills_pack(p: Project, out: Path) -> Path:
     approved = [s for s in p.stills if s.status == "approved"]
     heroes = [h for h in p.heroes if h.chosen]
@@ -18,12 +28,13 @@ def stills_pack(p: Project, out: Path) -> Path:
         for h in heroes:
             z.write(abs_path(h.path), f"hero_{h.cls}{Path(h.path).suffix}")
         for s in approved:
-            sh = p.shot(s.shot_n) if s.shot_n else None
+            sh = _shot_or_none(p, s.shot_n)
             z.write(abs_path(s.path), f"shot_{s.shot_n:02d}_{s.cls}{Path(s.path).suffix}")
         side = {
             "project": p.name, "disclaimer": p.branding.disclaimer, "stage": p.intake.project_stage,
             "stills": [{"file": f"shot_{s.shot_n:02d}_{s.cls}", "shot": s.shot_n, "source_hub": s.source_hub_id,
-                        "state": p.shot(s.shot_n).state.model_dump() if s.shot_n else None, "prompt": s.prompt,
+                        "state": (_shot_or_none(p, s.shot_n).state.model_dump() if _shot_or_none(p, s.shot_n) else None),
+                        "prompt": s.prompt,
                         "audit": s.audit.model_dump()} for s in approved],
         }
         z.writestr("sidecar.json", json.dumps(side, indent=2))

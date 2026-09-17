@@ -525,3 +525,188 @@ def test_an_unreadable_project_is_not_reported_as_missing(client):
     r = client.get(f"/api/projects/{pid}")
     assert r.status_code == 500
     assert "could not be parsed" in r.json()["detail"]
+
+
+def _mean_volume_db(path):
+    """Mean volume of a file's audio, via ffmpeg's volumedetect."""
+    import re as _re
+    import subprocess
+    from app.services.render.ffmpeg import ffmpeg
+    err = subprocess.run([ffmpeg(), "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+                         capture_output=True, text=True, timeout=300).stderr
+    m = _re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?) dB", err)
+    return float(m.group(1)) if m else None
+
+
+def _tiny_film(client, shots=2, **branding):
+    """A rendered project, as small as the pipeline allows."""
+    pid = _ready_for_stills(client, shots=shots)
+    client.post(f"/api/projects/{pid}/stills/generate")
+    client.post(f"/api/projects/{pid}/stills/approve_all")
+    client.post(f"/api/projects/{pid}/clips/generate")
+    for c in client.get(f"/api/projects/{pid}").json()["clips"]:
+        client.post(f"/api/projects/{pid}/clips/{c['id']}/approve")
+    client.get(f"/api/projects/{pid}/sequence/suggest")
+    if branding:
+        b = {"project_name": "T", "practice_name": "P", "disclaimer": "Artist's impression."}
+        b.update(branding)
+        assert client.put(f"/api/projects/{pid}/branding", json=b).status_code == 200
+    return pid
+
+
+def test_solid_title_cards_do_not_destroy_the_soundtrack(client, tmp_path):
+    """The card path concatenates cards around the film. If their sample rates
+    disagree the concat decoder silently drops every audio packet and ships a
+    silent film with a zero exit code.
+
+    A quiet bed is the trigger: loudnorm cannot reach the target in linear mode,
+    falls back to dynamic mode, and dynamic mode emits 192 kHz, which the film
+    encode then snaps to 96 kHz while the cards stay at 48 kHz.
+    """
+    import subprocess
+    from app.services.render.ffmpeg import ffmpeg
+    from app.store import abs_path
+    pid = _tiny_film(client, shots=2, style="card", title_position="both")
+    quiet = tmp_path / "quiet_bed.wav"
+    subprocess.run([ffmpeg(), "-y", "-loglevel", "error", "-f", "lavfi",
+                    "-i", "anoisesrc=c=brown:r=48000:a=0.002:d=12", "-ac", "2", str(quiet)], check=True)
+    with open(quiet, "rb") as f:
+        assert client.post(f"/api/projects/{pid}/audio/exterior",
+                           files={"file": ("quiet_bed.wav", f, "audio/wav")}).status_code == 200
+    r = client.post(f"/api/projects/{pid}/render")
+    assert r.status_code == 200, r.text
+    film = abs_path(r.json()["film"])
+    vol = _mean_volume_db(film)
+    assert vol is not None, "no audio stream at all in the delivered film"
+    assert vol > -60, f"the soundtrack was destroyed by the card concat (mean volume {vol} dB)"
+
+    # The trigger (loudnorm switching to dynamic mode, which emits 192 kHz) is
+    # data-dependent, so assert the invariant that makes it impossible: every
+    # audio stream the concat sees carries the same rate.
+    from app.services.render.ffmpeg import AUDIO_RATE, audio_rate
+    from app.store import project_dir
+    out_dir = project_dir(pid) / "out"
+    assert audio_rate(out_dir / "film.mp4") == AUDIO_RATE
+    for card in ("card_start.mp4", "card_end.mp4"):
+        if (out_dir / card).exists():
+            assert audio_rate(out_dir / card) == AUDIO_RATE, f"{card} disagrees with the film"
+    assert audio_rate(film) == AUDIO_RATE
+
+
+def test_the_disclaimer_reaches_the_film_under_default_branding(client):
+    """Law 7: a visualisation must not be mistaken for evidence. Under the
+    default branding the disclaimer was drawn nowhere at all."""
+    import cv2
+    from app.services.render.ffmpeg import RES, title_card_png
+    from app.models import Branding
+    out = abs_path_tmp = None
+    from app.store import project_dir
+    pid = _ready_for_stills(client, shots=2)
+    b = Branding(project_name="Willow Glen", disclaimer="Artist's impression. Not a daylight study.")
+    png = title_card_png(b, "16:9", project_dir(pid) / "out" / "card_probe.png", "start")
+    img = cv2.imread(str(png), cv2.IMREAD_UNCHANGED)
+    w, h = RES["16:9"]
+    strip = img[int(h * 0.86): int(h * 0.94), :, 3]     # alpha of the disclaimer band
+    assert int((strip > 40).sum()) > 200, "no disclaimer text drawn on the title card"
+
+
+def test_render_never_silently_drops_an_approved_clip(client):
+    """A regenerated-and-approved clip was missing from the stale sequence
+    order, so the film shipped a shot short without saying anything."""
+    pid = _tiny_film(client, shots=2)
+    before = client.get(f"/api/projects/{pid}/sequence/preview").json()
+    assert len(before["order"]) == 2
+    shot_n = client.get(f"/api/projects/{pid}").json()["clips"][0]["shot_n"]
+    r = client.post(f"/api/projects/{pid}/clips/regenerate",
+                    json={"items": [{"shot_n": shot_n, "mode": "camera_softer"}]})
+    new_id = r.json()["made"][0]["id"]
+    client.post(f"/api/projects/{pid}/clips/{new_id}/approve")
+    after = client.get(f"/api/projects/{pid}/sequence/suggest").json()
+    assert new_id in after["order"], "the newly approved clip is missing from the order"
+    assert len(after["order"]) == 2 and len(after["items"]) == 2
+    d = client.post(f"/api/projects/{pid}/render").json()
+    assert len(d["verification"]["brightness_arc"]) == 2
+
+
+def test_a_cut_clip_leaves_the_sequence_preview(client):
+    pid = _tiny_film(client, shots=2)
+    clips = client.get(f"/api/projects/{pid}").json()["clips"]
+    client.post(f"/api/projects/{pid}/clips/{clips[0]['id']}/cut")
+    prev = client.get(f"/api/projects/{pid}/sequence/preview").json()
+    assert len(prev["items"]) == 1, "a cut clip is still counted in the preview"
+    assert client.put(f"/api/projects/{pid}/sequence", json={"order": prev["order"]}).status_code == 200
+
+
+def test_editing_a_shot_retires_the_work_keyed_to_it(client):
+    """A still is keyed only by shot number, so repointing a shot would
+    otherwise animate an interior still as the exterior it now claims to be."""
+    pid = _ready_for_stills(client, shots=2)
+    client.post(f"/api/projects/{pid}/stills/generate")
+    client.post(f"/api/projects/{pid}/stills/approve_all")
+    p = client.get(f"/api/projects/{pid}").json()
+    shots = [dict(s) for s in p["plan"]["shots"]]
+    ext_hub = next(h["id"] for h in p["hubs"] if h["cls"] == "exterior")
+    target = next(s for s in shots if s["cls"] == "interior") if any(s["cls"] == "interior" for s in shots) else shots[0]
+    target["cls"], target["source_hub_id"] = "exterior", ext_hub
+    r = client.put(f"/api/projects/{pid}/plan", json={"shots": shots})
+    assert r.status_code == 200, r.text
+    after = client.get(f"/api/projects/{pid}").json()
+    assert after["budget"]["confirmed"] is False, "an edited plan must re-open the budget gate"
+    live = [s for s in after["stills"] if s["shot_n"] == target["n"] and s["status"] == "approved"]
+    assert not live, "the still for the changed shot should have been retired"
+    # and Law 3 must now block video for that shot
+    assert client.post(f"/api/projects/{pid}/clips/generate").status_code == 409
+
+
+def test_removing_a_shot_after_clips_exist_does_not_500(client):
+    pid = _tiny_film(client, shots=3)
+    shots = [dict(s) for s in client.get(f"/api/projects/{pid}").json()["plan"]["shots"]]
+    assert client.put(f"/api/projects/{pid}/plan", json={"shots": shots[:-1]}).status_code == 200
+    assert client.get(f"/api/projects/{pid}/sequence/suggest").status_code == 200
+    assert client.get(f"/api/projects/{pid}/sequence/preview").status_code == 200
+    r = client.post(f"/api/projects/{pid}/render")
+    assert r.status_code in (200, 409), r.status_code      # refused with a reason, never a 500
+
+
+def test_the_two_attempt_limit_holds_within_one_request(client):
+    """Several items for the same shot in one request each saw the same
+    pre-request attempt count, so the cap did not apply."""
+    pid = _tiny_film(client, shots=2)
+    n = client.get(f"/api/projects/{pid}").json()["clips"][0]["shot_n"]
+    r = client.post(f"/api/projects/{pid}/clips/regenerate", json={"items": [
+        {"shot_n": n, "mode": "camera_softer"},
+        {"shot_n": n, "mode": "camera_softer"},
+        {"shot_n": n, "mode": "notes", "note": "again"}]})
+    assert r.status_code == 200
+    assert len(r.json()["made"]) == 1, "only one further wet attempt is allowed"
+    assert len(r.json()["refused"]) == 2
+
+
+def test_a_note_mentioning_a_dry_reshoot_cannot_evade_the_limit(client):
+    pid = _tiny_film(client, shots=2)
+    n = client.get(f"/api/projects/{pid}").json()["clips"][0]["shot_n"]
+    for _ in range(3):
+        client.post(f"/api/projects/{pid}/clips/regenerate", json={"items": [
+            {"shot_n": n, "mode": "notes", "note": "not a dry re-shoot, keep the rain"}]})
+    wet = [c for c in client.get(f"/api/projects/{pid}").json()["clips"]
+           if c["shot_n"] == n and c.get("mode") != "dry"]
+    assert len(wet) <= 2, f"the attempt cap was evaded via free text: {len(wet)} wet attempts"
+
+
+def test_stills_pack_survives_a_still_whose_shot_is_gone(client):
+    from app.services.render.delivery import stills_pack
+    from app.store import project_dir
+    pid = _tiny_film(client, shots=2)
+    shots = [dict(s) for s in client.get(f"/api/projects/{pid}").json()["plan"]["shots"]]
+    client.put(f"/api/projects/{pid}/plan", json={"shots": shots[:1]})
+    from app.store import load_project
+    out = project_dir(pid) / "out" / "probe_pack.zip"
+    stills_pack(load_project(pid), out)                # must not raise KeyError
+    assert out.exists()
+
+
+def test_still_generation_re_checks_the_gates(client):
+    pid = _ready_for_stills(client, shots=2)
+    client.post(f"/api/projects/{pid}/plan/generate")   # clears approval and the budget
+    r = client.post(f"/api/projects/{pid}/stills/generate")
+    assert r.status_code == 409 and "plan" in r.json()["detail"].lower()

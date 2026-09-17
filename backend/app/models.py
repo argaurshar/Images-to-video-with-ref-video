@@ -83,6 +83,7 @@ class Shot(BaseModel):
     state: ChapterState
     sun_side: str = "camera-left"
     locked: bool = False
+    rederive_state: bool = False   # transient: the editor changed season or time
 
 
 class ShotPlan(BaseModel):
@@ -140,6 +141,7 @@ class QCReport(BaseModel):
     geometry_similarity: float = 1.0
     regions: dict[str, float] = Field(default_factory=dict)
     vertical_drift_deg: float = 0.0
+    vertical_measured: bool = True   # False when no building verticals were found
     luminance_drift: float = 0.0
     hue_drift_deg: float = 0.0
     text_suspect: bool = False
@@ -151,6 +153,7 @@ class QCReport(BaseModel):
 
 class Clip(Generated):
     still_id: str = ""
+    mode: str = "initial"   # initial | camera_softer | lighter_cues | dry | notes
     duration: float = 5.0
     qc: QCReport = Field(default_factory=QCReport)
     mean_brightness: float = 0.0

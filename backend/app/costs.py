@@ -5,10 +5,28 @@ from . import config
 from .models import Budget, LedgerEntry, Project
 
 
+def _clip_units(p: Project, n_shots: int) -> float:
+    """Clip cost in 5-second units.
+
+    A provider that only sells discrete lengths bills a 8-second shot as a
+    10-second clip, i.e. two units. Pricing every shot as one unit understated
+    a reference-driven film by up to double.
+    """
+    durations = [s.duration for s in p.plan.shots] or []
+    if not durations:
+        return float(n_shots)
+    units = 0.0
+    for d in durations[:n_shots]:
+        units += max(1.0, round(max(1.0, float(d)) / 5.0 + 0.4999))
+    units += max(0, n_shots - len(durations)) * 1.0
+    return units
+
+
 def estimate(p: Project) -> Budget:
     classes = {h.cls for h in p.hubs} or {"exterior"}
     n_shots = max(1, p.intake.length_shots)
     hero_images = 2 * len(classes)
+    clip_units = _clip_units(p, n_shots)
     b = Budget(
         hero_images=hero_images,
         stills=n_shots,
@@ -16,7 +34,7 @@ def estimate(p: Project) -> Budget:
         image_cost=config.IMAGE_COST,
         video_cost=config.VIDEO_COST,
     )
-    base = (hero_images + n_shots) * config.IMAGE_COST + n_shots * config.VIDEO_COST
+    base = (hero_images + n_shots) * config.IMAGE_COST + clip_units * config.VIDEO_COST
     b.reserve = round(base * config.RESERVE_FRACTION, 2)
     b.total = round(base + b.reserve, 2)
     b.confirmed = p.budget.confirmed

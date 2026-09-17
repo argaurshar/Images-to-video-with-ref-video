@@ -30,7 +30,9 @@ def _people_line(p: Project, shot: Shot) -> str:
         return "No people."
     colour = PEOPLE_COLOURS[shot.n % len(PEOPLE_COLOURS)]
     if shot.human_beat.startswith("hands"):
-        return (f"Add exactly ONE person as a close-up of hands only: {shot.human_beat.split(':',1)[1].strip()}, "
+        # human_beat is free text in the plan editor, so the colon is optional
+        detail = shot.human_beat.split(":", 1)[1].strip() if ":" in shot.human_beat else shot.human_beat.strip()
+        return (f"Add exactly ONE person as a close-up of hands only: {detail}, "
                 f"muted {colour} knit sleeve, no face.")
     where = "at the threshold" if shot.cls == "exterior" else "seated, facing the view"
     return (f"Add exactly ONE person: {shot.human_beat.split(':',1)[1].strip() if ':' in shot.human_beat else 'one figure'}, "

@@ -28,7 +28,7 @@ FRAMING = {
 CUES = {
     "exterior": {
         "wet": "a few sparse rain streaks near camera, drips from one eave, three or four rings on the wet ground",
-        "snow": "a few slow flakes near camera, one wisp of breath-mist, nothing else moving",
+        "snow": "a few slow flakes drifting near camera, one wisp of breath-mist",
         "dry": "one or two motion-blurred branch tips, one torn wisp of mist crossing the frame",
         "blossom": "a handful of petals drifting near camera, one branch tip blurred",
         "leaves": "three or four leaves drifting across the foreground, mist in the low ground",
@@ -36,7 +36,7 @@ CUES = {
     "interior": {
         "wet": "rain tracks on one pane of glass, sparse; foliage moving outside that window",
         "snow": "snow falling slowly outside one window; steam from one cup",
-        "dry": "dust motes in one shaft of sun; a sheer curtain lifting a few centimetres",
+        "dry": "dust motes drifting in one shaft of sun; a sheer curtain lifting a few centimetres",
         "blossom": "foliage moving outside one window; a sheer curtain lifting slightly",
         "leaves": "leaves moving outside one window; one candle or fireplace flame",
     },
@@ -211,6 +211,7 @@ def apply_interior_emphasis(shot: Shot, emphasis: str | None, may_move_time: boo
     rule = EMPHASIS.get(emphasis or "")
     if not rule or shot.cls != "interior":
         return None
+    moved = False
     if rule["cue"]:
         if linked:
             through_glass = shot.motion.split(";")[0].strip()
@@ -218,8 +219,6 @@ def apply_interior_emphasis(shot: Shot, emphasis: str | None, may_move_time: boo
             shot.motion = f"{through_glass}; {in_room}"
         else:
             shot.motion = rule["cue"]
-    if rule["lights_on"] is not None:
-        shot.state.lights_on = bool(rule["lights_on"])
     note = None
     if may_move_time and rule["times"] and shot.time not in rule["times"]:
         old = shot.time
@@ -228,6 +227,14 @@ def apply_interior_emphasis(shot: Shot, emphasis: str | None, may_move_time: boo
         if shot.state.lights_on is False and shot.time in ("dusk", "night"):
             shot.state.lights_on = True
         note = f"Shot {shot.n}: interior time moved from {old} to {shot.time} by the '{emphasis}' emphasis."
+        moved = True
+    # Only apply the emphasis's lighting when its time actually holds. Forcing
+    # "lights off" onto a shot pinned to night by a design intent produces a
+    # night interior lit by nothing.
+    if rule["lights_on"] is not None and (moved or shot.time in (rule["times"] or [shot.time])):
+        shot.state.lights_on = bool(rule["lights_on"])
+    if shot.time in ("dusk", "night"):
+        shot.state.lights_on = True
     return note
 
 
@@ -246,6 +253,7 @@ def build_plan(p: Project) -> ShotPlan:
     warnings: list[str] = []
 
     ref = reference_structure(p.reference, n) if intake.route == "reference" else None
+    ref_drives_time = False
     if intake.route == "reference" and ref is None:
         warnings.append("Reference route chosen but no reference film has been analysed; using the brief rules instead.")
     # A reference that never goes inside (or never comes out) cannot supply an
@@ -269,6 +277,7 @@ def build_plan(p: Project) -> ShotPlan:
         arc_slots = ARC_SLOTS.get(ref["arc"] or "flat", [])
         if arc_slots:
             slots = arc_slots
+            ref_drives_time = True
     elif ref and ref["arc"] not in ("flat", ""):
         warnings.append(f"The reference's light curve is {ref['arc']}, but the time arc is pinned to "
                         f"'{intake.time_arc}'; the pinned choice wins.")
@@ -408,7 +417,7 @@ def build_plan(p: Project) -> ShotPlan:
                 continue
             # a design intent, the reference's light arc, or a continuity link
             # all outrank the emphasis on timing; the emphasis still dresses the room
-            may_move = not sh.design_intent and not ref and sh.n not in linked_ids
+            may_move = not sh.design_intent and not ref_drives_time and sh.n not in linked_ids
             note = apply_interior_emphasis(sh, intake.interior_emphasis, may_move, linked=sh.n in linked_ids)
             if note:
                 warnings.append(note)
@@ -496,17 +505,60 @@ def _break_runs(shots: list[Shot]) -> None:
         s = shots[i]
         is_closer = sizes[s.chapter] > 1 and (i == n - 1 or shots[i + 1].chapter != s.chapter)
         return i == 0 or i == n - 1 or is_closer
-    for i in range(2, n):
-        a, b, c = shots[i - 2], shots[i - 1], shots[i]
-        if a.scale == b.scale == c.scale:
+    # Repeat: flipping a shot to break one run can complete a new run with the
+    # two shots before it, which a single forward pass has already gone past.
+    for _ in range(n + 2):
+        changed = False
+        for i in range(2, n):
+            a, b, c = shots[i - 2], shots[i - 1], shots[i]
+            if a.scale != b.scale or b.scale != c.scale:
+                continue
             for cand in (i - 1, i - 2, i):
-                if not protected(cand):
-                    t = shots[cand]
-                    t.scale = "medium" if t.scale != "medium" else "detail"
-                    t.framing = FRAMING[(t.cls, t.scale)]
-                    if t.beat in ("dwell", "detail"):
-                        t.beat = "detail" if t.scale == "detail" else "dwell"
-                    break
+                if protected(cand):
+                    continue
+                t = shots[cand]
+                neighbours = {shots[j].scale for j in (cand - 2, cand - 1, cand + 1, cand + 2) if 0 <= j < n}
+                pick = next((x for x in ("medium", "detail", "wide") if x != t.scale and x not in neighbours), None)
+                if pick is None:
+                    pick = "medium" if t.scale != "medium" else "detail"
+                t.scale = pick
+                t.framing = FRAMING[(t.cls, t.scale)]
+                if t.beat in ("dwell", "detail"):
+                    t.beat = "detail" if t.scale == "detail" else "dwell"
+                changed = True
+                break
+            if changed:
+                break
+        if not changed:
+            break
+
+
+def rederive_state(shot: Shot, p: Project) -> None:
+    """Recompute everything a shot's season and time imply.
+
+    The plan editor lets a designer change season or time directly. Without
+    this, a shot flipped from winter to summer kept the snow weather, the
+    winter month, the precipitation flag and the snow motion cue, and those
+    are what reach the prompt.
+    """
+    prof = p.location_profile or L.profile(p.intake.location)
+    weather, precip = L.season_weather(shot.season, prof, heavy=shot.heavy)
+    months = prof.get("season_months", {}).get(shot.season, [""])
+    shot.state.season = shot.season
+    shot.state.time = shot.time
+    shot.state.weather = weather
+    shot.state.precipitation = precip
+    shot.state.month = months[len(months) // 2] if months else ""
+    shot.state.lights_on = shot.time in ("dusk", "night", "dawn") or (
+        shot.cls == "interior" and shot.time == "golden_hour")
+    shot.motion = CUES[shot.cls][_cue_key(shot.season, weather)]
+    shot.framing = FRAMING[(shot.cls, shot.scale)]
+    hub = p.hub(shot.source_hub_id)
+    hemi = prof.get("hemisphere", "northern")
+    side = L.sun_side(hub.camera_faces, shot.time, hemi)
+    shot.sun_side = side if shot.cls == "exterior" else side.replace(
+        "behind the building", "through the far opening").replace(
+        "behind the camera", "through the opening behind camera")
 
 
 def validate(plan: ShotPlan, p: Project, reference_driven: bool = False) -> list[str]:

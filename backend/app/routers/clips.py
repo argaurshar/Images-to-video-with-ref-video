@@ -24,6 +24,9 @@ class RegenItem(BaseModel):
     note: str = ""
 
 
+DRY_MARK = "dry-reshoot"          # a structured marker, never free user text
+
+
 class RegenBody(BaseModel):
     items: list[RegenItem]
 
@@ -33,7 +36,10 @@ def _approved_still(p, n):
 
 
 def _gen_clip(p, shot, still, attempt: int, motion_override: str | None = None) -> Clip:
-    prov = get_provider()
+    try:
+        prov = get_provider()
+    except ProviderError as e:
+        raise HTTPException(502, f"provider error: {e}")
     prompt = motion_override or prompts.motion_prompt(p, shot)
     neg = prompts.negative_prompt(shot.cls)
     cid = new_id("clp")
@@ -49,7 +55,8 @@ def _gen_clip(p, shot, still, attempt: int, motion_override: str | None = None) 
         bright = 0.0
     c = Clip(id=cid, shot_n=shot.n, cls=shot.cls, source_hub_id=shot.source_hub_id, still_id=still.id, attempt=attempt,
              path=rel(out), thumb=rel(thumb), prompt=prompt, negative=neg, provider=prov.name, provider_id=res.provider_id,
-             cost=res.cost, duration=shot.duration, mean_brightness=round(bright, 3))
+             cost=res.cost, duration=(res.seconds or shot.duration), mean_brightness=round(bright, 3),
+             note=res.note)
     expects = shot.state.precipitation
     try:
         c.qc = run_qc(out, shot.cls, expects_particles=expects)  # Law 4: measure before showing
@@ -178,14 +185,17 @@ def regenerate(pid: str, body: RegenBody):
             shot = p.shot(item.shot_n)
         except KeyError:
             raise HTTPException(404, f"no shot {item.shot_n}")
-        prior = [c for c in p.clips if c.shot_n == item.shot_n]
-        wet_attempts = [c for c in prior if "dry re-shoot" not in c.note]
+        # reload per item: several items in one request for the same shot must
+        # each see the attempts the previous ones committed
+        prior = [c for c in get(pid).clips if c.shot_n == item.shot_n
+                 and c.status in ("pending", "approved", "rejected", "cut")]
+        wet_attempts = [c for c in prior if c.mode != "dry"]
         if item.mode != "dry" and len(wet_attempts) >= config.MAX_ATTEMPTS_PER_SHOT:
             refused.append({"shot_n": item.shot_n, "reason": (
                 f"{len(wet_attempts)} attempts already. Recommend cutting the shot or re-shooting it dry "
                 f"(mode 'dry': no precipitation, only mist, cloud drift and wind). No third wet attempt.")})
             continue
-        if item.mode == "dry" and any("dry re-shoot" in c.note for c in prior):
+        if item.mode == "dry" and any(c.mode == "dry" for c in prior):
             refused.append({"shot_n": item.shot_n, "reason": "a dry re-shoot was already tried; recommend cutting this shot"})
             continue
         still = _approved_still(p, shot.n)
@@ -233,6 +243,7 @@ def regenerate(pid: str, body: RegenBody):
             motion = prompts.motion_prompt(p, shot) + f" Direction notes: {item.note}"
         c = _gen_clip(p, shot2 if item.mode in ("lighter_cues", "dry") else shot, still, attempt=attempt, motion_override=motion)
         c.note = note
+        c.mode = item.mode
         with mutate(pid) as cur:
             for x in cur.clips:
                 if x.shot_n == shot.n and x.status == "pending":

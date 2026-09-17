@@ -111,4 +111,5 @@ class MockProvider(Provider):
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if r.returncode != 0:
             raise ProviderError(r.stderr[-800:])
-        return GenResult(path=out, provider_id="mock-clip", cost=config.VIDEO_COST, note="simulated generation; cost is the configured rate, not a real charge")
+        return GenResult(path=out, provider_id="mock-clip", cost=config.VIDEO_COST, seconds=float(seconds),
+                         note="simulated generation; cost is the configured rate, not a real charge")

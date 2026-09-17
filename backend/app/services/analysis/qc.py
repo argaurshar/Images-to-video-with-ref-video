@@ -50,11 +50,31 @@ def _particle_mask(g: np.ndarray, structure: np.ndarray, thr: float = 12.0) -> n
     return keep[labels]
 
 
-def _band_mask(grays: list[np.ndarray], cls: str) -> np.ndarray:
+def _band_mask(grays: list[np.ndarray], cls: str, frame: np.ndarray | None = None) -> np.ndarray:
+    """Where precipitation is allowed to be measured.
+
+    For an exterior this is open sky, and it has to be tested rather than
+    assumed: a detail or macro shot has no sky at all, and a fixed top-30%
+    rectangle would measure brick coursing as rain. When the top band is not
+    actually sky the mask comes back empty, which reads as "no precipitation
+    measured here" instead of a false reading.
+    """
     h, w = grays[0].shape
     if cls == "exterior":
         m = np.zeros((h, w), bool)
-        m[: max(1, int(h * 0.30))] = True
+        band = max(1, int(h * 0.30))
+        if frame is not None:
+            top = frame[:band]
+            hsv = cv2.cvtColor(top, cv2.COLOR_BGR2HSV)
+            sat = hsv[..., 1] / 255.0
+            val = hsv[..., 2] / 255.0
+            b, g_, r = cv2.split(top.astype(np.float32))
+            sky = ((b > r + 8) & (b >= g_) & (val > 0.35)) | ((val > 0.72) & (sat < 0.18))
+            if sky.mean() < 0.25:        # not an open-sky shot: measure nothing
+                return m
+            m[:band] = sky
+            return m
+        m[:band] = True
         return m
     # interior: glazing band = the brightest quarter of the temporal mean
     mean = np.mean(grays, axis=0)
@@ -95,7 +115,7 @@ def run_qc(clip_path: str | Path, cls: str = "exterior", expects_particles: bool
     # stays put. Judged in the band only, so mullions, downpipes and trunks
     # do not count.
     structure = _structure_mask(grays[0])
-    band = _band_mask(grays, cls)
+    band = _band_mask(grays, cls, frames[0])
     s0 = _particle_mask(grays[0], structure) & band
     if s0.sum() > 30:
         k = np.ones((3, 3), np.uint8)
@@ -103,7 +123,10 @@ def run_qc(clip_path: str | Path, cls: str = "exterior", expects_particles: bool
         persist = []
         for g in later:
             ga = F.align_affine(grays[0], g)
-            m = cv2.dilate((_highpass(ga) > 12).astype(np.uint8), k) > 0  # 1 px tolerance
+            # only particle-shaped marks count as "the streak is still there";
+            # any-high-pass-energy gave a chance-overlap floor that rose with
+            # density, so heavy but correctly travelling rain read as frozen
+            m = cv2.dilate(_particle_mask(ga, structure).astype(np.uint8), k) > 0
             persist.append(m[s0].mean())
         r.frozen_ratio = round(float(np.clip(np.mean(persist), 0.0, 1.0)), 3)
     else:
@@ -126,8 +149,17 @@ def run_qc(clip_path: str | Path, cls: str = "exterior", expects_particles: bool
     }
     r.regions = {k: round(float(v.mean()), 3) for k, v in regions.items()}
 
-    a0, a1 = F.vertical_angle_deg(grays[0]), F.vertical_angle_deg(grays[-1])
-    r.vertical_drift_deg = round(abs(a1 - a0), 3) if a0 is not None and a1 is not None else 0.0
+    moving_v = cv2.dilate(moving.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    a0 = F.vertical_angle_deg(grays[0], exclude=moving_v)
+    a1 = F.vertical_angle_deg(grays[-1], exclude=moving_v)
+    if a0 is None or a1 is None:
+        # no building verticals to measure: say so rather than report a
+        # passing 0.00 degrees for a check that never ran
+        r.vertical_drift_deg = 0.0
+        r.vertical_measured = False
+    else:
+        r.vertical_drift_deg = round(abs(a1 - a0), 3)
+        r.vertical_measured = True
 
     l0, l1 = grays[0].mean(), grays[-1].mean()
     r.luminance_drift = round(float(abs(l1 - l0) / max(l0, 1.0)), 4)
@@ -161,7 +193,7 @@ def run_qc(clip_path: str | Path, cls: str = "exterior", expects_particles: bool
     dead_regions = [k for k, v in r.regions.items() if v < T["region_min"]]
     if dead_regions and r.motion_score >= T["motion_min"]:
         f.append("region: " + ",".join(dead_regions)); notes.append("Motion fine but only in some regions: the camera moved, the world did not.")
-    if r.vertical_drift_deg > T["vertical_max_deg"]:
+    if r.vertical_measured and r.vertical_drift_deg > T["vertical_max_deg"]:
         f.append("vertical drift"); notes.append("Verticals lean by more than 1 degree: the room or facade is tilting.")
     if r.luminance_drift > T["lum_max"]:
         f.append("exposure drift"); notes.append("Exposure drifts more than 6%: the clip will pop at the cut.")
@@ -169,6 +201,8 @@ def run_qc(clip_path: str | Path, cls: str = "exterior", expects_particles: bool
         f.append("colour drift"); notes.append("Hue drifts more than 8 degrees: colour is not holding.")
     if r.text_suspect:
         f.append("text suspect"); notes.append("Glyph-like clusters appeared that are absent from the still. Check for text or watermark.")
+    if not r.vertical_measured:
+        notes.append("Verticals could not be measured on this framing, so that check did not run.")
     r.passed = not f
     r.interpretation = " ".join(notes) if notes else "All metrics inside range."
     return r

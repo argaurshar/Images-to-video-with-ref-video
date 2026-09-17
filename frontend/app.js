@@ -12,6 +12,7 @@ const SCALES = ["aerial", "wide", "medium", "detail", "macro"];
 let P = null;          // current project document
 let view = "intake";   // current stage view
 let health = {};
+let pendingIntake = null;   // questionnaire text held across a re-render
 
 // ------------------------------------------------------------------ helpers
 async function api(path, opts = {}) {
@@ -101,8 +102,27 @@ function renderAll() {
 }
 
 // ------------------------------------------------------------------ 1 intake
+function readIntakeForm() {
+  // The questionnaire lives in the DOM until it is saved, and uploading or
+  // removing a render re-renders the page. Capture it first so nothing typed
+  // is lost.
+  if (!el("i_location")) return null;
+  const lenSel = el("i_length").value;
+  return {
+    route: el("i_route").value, aspect: el("i_aspect").value, time_arc: el("i_time_arc").value,
+    single_time: el("i_single_time").value, mood: el("i_mood").value, people: el("i_people").value,
+    length_shots: lenSel === "custom" ? +el("i_custom").value : +lenSel,
+    seasons: [...el("seasons").querySelectorAll(".chip.on")].map(c => c.dataset.s),
+    location: el("i_location").value, project_stage: el("i_stage").value, end_use: el("i_end_use").value,
+    interior_emphasis: el("i_int").value || null,
+    design_intents: [0, 1, 2].map(i => el("i_intent" + i).value),
+    project_name: el("i_pname").value, practice_name: el("i_practice").value,
+  };
+}
+
 function rIntake() {
-  const I = P.intake;
+  const I = Object.assign({}, P.intake, pendingIntake || {});
+  pendingIntake = null;
   const seasonChips = SEASONS.map(s => `<span class="chip ${I.seasons.includes(s) ? "on" : ""}" data-s="${s}">${s}</span>`).join("");
   const hubs = (P.hubs || []).map(h => `
     <div class="tile"><img src="${file(`projects/${P.id}/thumbs/${h.id}.jpg`)}" alt="">
@@ -130,7 +150,7 @@ function rIntake() {
         <label class="f">single time (if chosen)<select id="i_single_time">${TIMES.map(t => `<option ${I.single_time === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
         <label class="f">mood<select id="i_mood">${[["serene", "Serene and still"], ["moody", "Moody and atmospheric"], ["warm", "Warm and lived-in"], ["bold", "Bold and dramatic"]].map(([v, l]) => `<option value="${v}" ${I.mood === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="f">people<select id="i_people">${[["none", "None (pure architecture)"], ["scale_figure", "Scale figure, from behind"], ["lifestyle", "Lifestyle, one pair or small group"]].map(([v, l]) => `<option value="${v}" ${I.people === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-        <label class="f">length<select id="i_length">${[[5, "25 s · 5 shots"], [9, "45 s · 9 shots"], [14, "70 s · 14 shots"]].map(([v, l]) => `<option value="${v}" ${I.length_shots == v ? "selected" : ""}>${l}</option>`).join("")}<option value="custom">Custom</option></select></label>
+        <label class="f">length<select id="i_length">${[[5, "25 s · 5 shots"], [9, "45 s · 9 shots"], [14, "70 s · 14 shots"]].map(([v, l]) => `<option value="${v}" ${I.length_shots == v ? "selected" : ""}>${l}</option>`).join("")}<option value="custom" ${[5, 9, 14].includes(I.length_shots) ? "" : "selected"}>Custom</option></select></label>
         <label class="f">custom shots<input id="i_custom" type="number" min="1" max="30" value="${I.length_shots}"></label>
       </div>
       <div style="margin:10px 0"><span class="muted">seasons</span><div class="chips" id="seasons">${seasonChips}</div></div>
@@ -152,7 +172,11 @@ function rIntake() {
     </div>`;
   // handlers
   const drop = el("drop");
-  const upload = async files => busy(async () => { const fd = new FormData(); [...files].forEach(f => fd.append("files", f)); await api(`/api/projects/${P.id}/hubs`, { body: fd }); await reload(); }, "analysing renders…");
+  const upload = async files => busy(async () => {
+    pendingIntake = readIntakeForm();
+    const fd = new FormData(); [...files].forEach(f => fd.append("files", f));
+    await api(`/api/projects/${P.id}/hubs`, { body: fd }); await reload();
+  }, "analysing renders…");
   el("hubfiles").onchange = e => upload(e.target.files);
   drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); }; drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); upload(e.dataTransfer.files); };
@@ -163,22 +187,21 @@ function rIntake() {
     if (exteriorId) await api(`/api/projects/${P.id}/hubs/${exteriorId}`, { method: "PATCH", body: { continuity_group: exteriorId } });
     await reload();
   }));
-  el("main").querySelectorAll("[data-del]").forEach(b => b.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/hubs/${b.dataset.del}`, { method: "DELETE" }); await reload(); }));
+  el("main").querySelectorAll("[data-del]").forEach(b => b.onclick = () => busy(async () => {
+    pendingIntake = readIntakeForm();
+    await api(`/api/projects/${P.id}/hubs/${b.dataset.del}`, { method: "DELETE" }); await reload();
+  }));
   el("seasons").querySelectorAll(".chip").forEach(c => c.onclick = () => c.classList.toggle("on"));
   el("save_intake").onclick = () => busy(async () => {
-    const lenSel = el("i_length").value;
-    const body = {
-      route: el("i_route").value, aspect: el("i_aspect").value, time_arc: el("i_time_arc").value, single_time: el("i_single_time").value,
-      mood: el("i_mood").value, people: el("i_people").value, length_shots: lenSel === "custom" ? +el("i_custom").value : +lenSel,
-      seasons: [...el("seasons").querySelectorAll(".chip.on")].map(c => c.dataset.s), location: el("i_location").value,
-      project_stage: el("i_stage").value, end_use: el("i_end_use").value, interior_emphasis: el("i_int").value || null,
-      design_intents: [0, 1, 2].map(i => el("i_intent" + i).value), project_name: el("i_pname").value, practice_name: el("i_practice").value,
-    };
+    const body = readIntakeForm();
     const r = await api(`/api/projects/${P.id}/intake`, { method: "PUT", body }); P = r.project;
     if (r.warnings.length) modal(`<h3>Crop warnings (Law 6: crop, never outpaint)</h3><ul class="warn-list">${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>`);
     renderAll();
   }, "researching the location…");
-  const cb = el("confirm_budget"); if (cb) cb.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/budget/confirm`, { method: "POST" }); await reload(); toast("budget confirmed"); });
+  const cb = el("confirm_budget"); if (cb) cb.onclick = () => busy(async () => {
+    pendingIntake = readIntakeForm();
+    await api(`/api/projects/${P.id}/budget/confirm`, { method: "POST" }); await reload(); toast("budget confirmed");
+  });
 }
 
 // ------------------------------------------------------------------ 2 reference
@@ -233,7 +256,17 @@ function rPlan() {
     ${shots.length ? `<div class="card" style="overflow:auto"><table><tr><th>#</th><th>class</th><th>season</th><th>time</th><th>scale</th><th>source render</th><th>secs</th><th>motion cue (light only)</th><th>human beat</th><th>design intent</th><th>chapter state</th><th></th></tr>${rows}</table></div>` : ""}`;
   el("gen").onclick = () => busy(async () => { await api(`/api/projects/${P.id}/plan/generate`, { method: "POST" }); await reload(); });
   const sv = el("saveplan"); if (sv) sv.onclick = () => busy(async () => {
-    const edited = shots.map(s => { const tr = el("main").querySelector(`tr[data-n="${s.n}"]`); const c = structuredClone(s); tr.querySelectorAll("[data-k]").forEach(i => c[i.dataset.k] = i.value); c.state.season = c.season; c.state.time = c.time; return c; });
+    const edited = shots.map(s => {
+      const tr = el("main").querySelector(`tr[data-n="${s.n}"]`);
+      const c = structuredClone(s);
+      tr.querySelectorAll("[data-k]").forEach(i => c[i.dataset.k] = i.dataset.k === "duration" ? Number(i.value) : i.value);
+      // season/time drive weather, month, precipitation and the motion cue, so
+      // let the server re-derive the chapter state rather than carrying the
+      // previous season's snow cue onto a summer shot
+      c.state.season = c.season; c.state.time = c.time;
+      if (s.season !== c.season || s.time !== c.time) c.rederive_state = true;
+      return c;
+    });
     await api(`/api/projects/${P.id}/plan`, { method: "PUT", body: { shots: edited } }); await reload();
   });
   const ap = el("approve"); if (ap) ap.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/plan/approve`, { method: "POST" }); await reload(); toast("plan approved"); });

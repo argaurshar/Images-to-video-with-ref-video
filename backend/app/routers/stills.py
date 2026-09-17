@@ -25,7 +25,10 @@ class Regen(BaseModel):
 
 
 def _gen_still(p, shot, hub, out_dir, corrections: str = "", attempt: int = 1) -> Still:
-    prov = get_provider()
+    try:
+        prov = get_provider()          # constructing the provider can fail too
+    except ProviderError as e:
+        raise HTTPException(502, f"provider error: {e}")
     prompt = prompts.still_prompt(p, shot, hub, corrections)
     neg = prompts.negative_prompt(shot.cls)
     sid = new_id("stl")
@@ -152,6 +155,10 @@ def hero_choose(pid: str, hid: str):
 def stills_generate(pid: str, background: bool = False):
     p = get(pid)
     classes = {s.cls for s in p.plan.shots}
+    # Law 3 and Part 1.4 again: both can be invalidated after the heroes exist,
+    # because regenerating or editing the plan clears them
+    gate(p.plan.approved, "approve the shot plan first")
+    gate(p.budget.confirmed, "confirm the budget first")
     gate(all(any(h.cls == c and h.chosen for h in p.heroes) for c in classes), "choose a hero for every class first")
     todo = [s for s in p.plan.shots
             if not any(x.shot_n == s.n and x.status in ("pending", "approved") for x in p.stills)]
@@ -182,10 +189,16 @@ def still_approve(pid: str, sid: str):
     st = next((s for s in p.stills if s.id == sid), None)
     if not st:
         raise HTTPException(404, "still not found")
-    for other in p.stills:
-        if other.shot_n == st.shot_n and other.id != sid and other.status == "approved":
-            other.status = "rejected"
+    superseded = [o for o in p.stills if o.shot_n == st.shot_n and o.id != sid and o.status == "approved"]
+    for other in superseded:
+        other.status = "rejected"
     st.status = "approved"
+    # A clip animated from a still that is no longer approved must not ship.
+    # Retire it so the clips stage offers to rebuild it.
+    for c in p.clips:
+        if c.still_id in {o.id for o in superseded} and c.status in ("pending", "approved"):
+            c.status = "rejected"
+            c.note = (c.note + " | retired: its still was replaced").strip(" |")
     p.record_approval("still", {"id": sid, "shot": st.shot_n, "audit": st.audit.rating})
     save_project(p)
     return st
