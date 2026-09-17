@@ -33,6 +33,7 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/pages")
           if [ "$code" = "200" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Pages is on::Publishing docs/ to the project page."
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Pages is off::Enable it once under Settings > Pages > Build and deployment > Source: GitHub Actions. The next push then publishes docs/ automatically. Skipping the deploy for now."
