@@ -2,7 +2,13 @@
 
 Turns an architect's or interior designer's renders into a short cinematic film across seasons, times of day and moods, without ever redesigning the building. Built from `SPEC.md` (v2.0, the architecture and interior design edition of the original mega prompt).
 
-The app enforces the spec's laws server-side: every still comes from an original render, video is refused until every still is approved, every clip is measured before it is shown, and a shot that fails twice is cut or re-shot dry rather than tried a third time.
+There are two implementations of the same engine, sharing one interface and one
+set of rules: a **browser version** that runs on GitHub Pages with nothing
+installed, and a **Python server** for driving a paid generation API. Both
+enforce the spec's laws the same way: every still comes from an original
+render, video is refused until every still is approved, every clip is measured
+before it is shown, and a shot that fails twice is cut or re-shot dry rather
+than tried a third time.
 
 ## What you get
 
@@ -11,16 +17,61 @@ The app enforces the spec's laws server-side: every still comes from an original
 - **Shot plan**: a deterministic planner that applies the scale pyramid, calendar order for the site's hemisphere, chapter closers, human beats at the edges, one heavy weather beat, approach → enter → dwell → detail → return, and maps your three design intents to shots. Sun side comes from the orientation you stated. Interior emphasis steers interior times, lighting and cues. An interior linked to an exterior inherits that exterior's exact weather and time, so the window never shows rain while the room shows sun. Every shot carries its own editable duration.
 - **Hero gate, still board, clips**: generation through a pluggable provider, a fidelity audit of every still against its hub render, and the QC suite (motion, frozen ratio, particle density in the sky or glazing band, geometry drift, region check, vertical drift, exposure and hue drift, text check) on every clip.
 - **Batches that survive a crash**: the still board and the clip run commit and account for each item as it completes, so a run that dies partway keeps everything it paid for and resumes rather than paying twice. Long runs go to a background job with live progress, because fourteen clips on a real provider is tens of minutes, not one HTTP request.
-- **Sequence editor, branding, final render**: drag ordering with a light-arc strip and continuity warnings; title cards, stage stamp and disclaimer; ffmpeg render at 30 fps with an ambience bed normalised to −16 LUFS; crop-only variants; a stills pack; a project record (JSON and HTML) with every prompt, audit, QC table, approval and cost.
+- **Sequence editor, branding, final render**: drag ordering with a light-arc strip and continuity warnings; title cards, stage stamp and disclaimer; a 30 fps render with an ambience bed (ffmpeg and −16 LUFS on the server; recorded from a canvas with an RMS-approximated level in the browser, which says so on the page); crop-only variants; a stills pack; a project record (JSON and HTML) with every prompt, audit, QC table, approval and cost.
 
-## The project page
+## Run it in your browser, on GitHub Pages
 
-A page describing the app, with screenshots of the interface, is published from `docs/` to
+**https://argaurshar.github.io/Images-to-video-with-ref-video/app/**
+
+That link is the working app, not a description of one. The whole engine is the
+page: the planner, the image analysis, the fidelity audit, the clip
+measurements and the final render all run in the tab. No install, no account,
+no server, and nothing you upload leaves your machine. It has no dependencies
+at all: Canny, connected components, the frame aligner, the ZIP writer and the
+video encoder are all in `docs/app/engine/`, so there is no CDN to go down.
+
+A tour of the tool, with screenshots, is at
 **https://argaurshar.github.io/Images-to-video-with-ref-video/**
 
-It is documentation, not the running app. GitHub Pages serves static files, and this is a Python server that runs ffmpeg and OpenCV with background jobs alive for tens of minutes. To actually run it, see the next section.
+Out of the box it uses a **demo generator** that runs in the tab, costs nothing
+and still exercises every gate, so a whole project can be rehearsed end to end
+before any money is involved.
 
-## Run it on GitHub itself
+The numbers are the server's numbers. The image metrics were checked against
+the Python implementation on the same files: edge density matches to four
+decimal places, and a still the server audits at 0.915 structural similarity
+the browser audits at 0.911.
+
+### What the browser version cannot do
+
+**Drive a paid API directly.** A web page can only read a reply from another
+site when that site marks it readable, and an API that authenticates with a
+secret key normally refuses, on purpose. Paste a key under **Settings** and
+press **Test the key**: it says plainly whether calls get through from your
+browser. Nothing is charged either way. If they do not, run the Python server
+below, which calls from the server side where the restriction does not apply.
+
+**Promise you an MP4.** The film is recorded from a canvas, so the format is
+whatever the browser encodes. Chrome, Edge and Safari on a desktop give H.264
+in an MP4; Firefox and some Chromium builds give VP9 in a WebM, which plays in
+browsers but not in QuickTime, PowerPoint or most editors. The tool records a
+fraction of a second, reads the bytes back and tells you which you got, and
+never names a file `.mp4` for something an MP4 cannot hold. The Python server
+renders with ffmpeg and always writes H.264.
+
+**Keep your work anywhere but this browser.** Projects and generated files live
+in this browser's storage on this device. Clearing site data erases them, and
+another device will not see them. Download the film and the stills pack when a
+project is done. There is also **no access lock**, because a static page cannot
+check a password before serving its own source; on a shared machine, use the
+server.
+
+**Render faster than real time.** Clips and the film are recorded as they play,
+so a 45-second film takes about 45 seconds, and the tab has to stay in front.
+A background tab freezes the picture while the clock runs, so the tool discards
+that render rather than hand you a frozen film.
+
+## Run it as a server
 
 The app runs unchanged inside a **GitHub Codespace**, which is GitHub's own
 container host. Nothing is installed on your machine, and you get an HTTPS URL.

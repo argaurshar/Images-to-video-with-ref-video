@@ -4,48 +4,69 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run it — ArchViz Cinematic Engine</title>
-<meta name="description" content="Three ways to run the engine: a GitHub Codespace, an always-on container host, or your own machine.">
+<meta name="description" content="The engine runs in your browser with nothing installed. A server is only needed to drive a paid generation API.">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22%23d9b46a%22/></svg>">
 </head>
 <body>
 <header class="nav"><div class="wrap">
   <a class="brand" href="index.html"><span class="dot"></span> ArchViz Cinematic Engine</a>
-  <nav><a href="index.html">Overview</a><a href="how-it-works.html">How it works</a><a href="running.html" aria-current="page">Run it</a><a href="quality.html">Quality control</a><a href="limits.html">Limits</a></nav>
+  <nav><a href="index.html">Overview</a><a href="how-it-works.html">How it works</a><a href="running.html" aria-current="page">Run it</a><a href="quality.html">Quality control</a><a href="limits.html">Limits</a><a class="navcta" href="app/">Open the tool &rarr;</a></nav>
 </div></header>
-
 
 <div class="hero"><div class="wrap">
   <h1>Run it</h1>
-  <p class="lede">A Codespace on GitHub, an always-on host, or your own machine. In every case the API key is set inside the app, not in a dashboard.</p>
-  <div class="cta"><a class="btn" href="https://github.com/codespaces/new?repo=argaurshar/Images-to-video-with-ref-video&ref=claude/app-md-review-enhance-its81i">Open in a Codespace</a></div>
+  <p class="lede">Open a tab and start. Nothing to install, no account, no server. A server only enters the picture if you want to drive a paid generation API, and that is a limit of browsers rather than of this tool.</p>
+  <div class="cta"><a class="btn" href="app/">Open the tool</a><a class="btn ghost" href="how-it-works.html">See how it works</a></div>
 </div></div>
 
 <section><div class="wrap">
-  <h2>On GitHub, in a Codespace</h2>
-  <p class="sub">The app runs unchanged on GitHub&rsquo;s own container host. Nothing installed.</p>
+  <h2>In your browser, right here</h2>
+  <p class="sub">The whole engine is the page: the planner, the image analysis, the fidelity audit, the clip measurements and the final render.</p>
   <ol class="steps">
-    <li><b>Open a codespace</b><p>Use the button above, or from the repo page choose Code, the Codespaces tab, then Create codespace.</p></li>
-    <li><b>Wait for the build</b><p>GitHub builds the container, installs the dependencies and starts the server on port 8000. The first build takes a few minutes because it installs OpenCV.</p></li>
-    <li><b>Open the forwarded URL</b><p>Click the app.github.dev link it shows you.</p></li>
-    <li><b>Claim it, then add your key</b><p>Set an access code, then paste your Freepik key under Settings and press Test the key.</p></li>
+    <li><b>Open the tool</b><p>It is a static page on GitHub Pages. There is nothing to sign into and nothing to wait for.</p></li>
+    <li><b>Create a project and drop in your renders</b><p>One to eight images of one project. They are read in the tab and never uploaded anywhere.</p></li>
+    <li><b>Name the finishes, state the location, approve the plan</b><p>The plan is deterministic, so the same intake always gives the same shot list and you can predict what a change will do.</p></li>
+    <li><b>Generate, measure, sequence, render</b><p>Out of the box it uses a demo generator that costs nothing and still exercises every gate, so you can take a project all the way to a finished film before deciding whether to spend anything.</p></li>
   </ol>
-  <div class="note"><strong>Private by default.</strong> The forwarded port is visible only to you, signed in to GitHub. That is deliberate, because the instance holds a paid API key. To send a client a link, open the Ports panel, right-click port 8000, choose Port Visibility, then Public.</div>
-  <h3>What it costs</h3>
-  <p>A personal GitHub Free account includes about 120 core-hours a month, roughly 60 hours on the default two-core machine, plus 15 GB of storage.</p>
-  <ul>
-    <li>A codespace <b>stops after 30 minutes idle</b>. A long clip batch is interrupted if you close the tab. That is survivable here: storage persists and batches resume where they stopped, so nothing is paid for twice.</li>
-    <li>Storage keeps billing while a codespace exists, even stopped. Delete it when a project is finished.</li>
-  </ul>
+  <div class="note"><strong>Everything stays on your machine.</strong> Projects, renders, generated stills, clips and films live in this browser&rsquo;s own storage. No server ever sees them. That is the good news and the catch: clearing site data for the address erases the lot, and another device will not see your projects. Download the film and the stills pack when a project is done.</div>
+  <div class="note warn"><strong>Keep the tab in front while video is being written.</strong> Clips and the final film are recorded in real time, so a 45-second film takes about 45 seconds. A browser freezes animation in a background tab, which would record a still picture over a running clock, so the tool throws that render away rather than hand you a frozen film. Run it and let it run.</div>
 </div></section>
 
 <section><div class="wrap">
-  <h2>Always on, for an address that stays live</h2>
-  <p class="sub">A Codespace is for working on projects yourself. For a URL that is up without anyone opening anything, deploy the same repo to a container host.</p>
-  <h3>Render</h3>
-  <p>Sign in with GitHub, choose <b>New</b>, then <b>Blueprint</b>, connect the repository and pick the branch. Render reads the blueprint in the repo and builds the container.</p>
+  <h2>What the browser can and cannot encode</h2>
+  <p>The film is recorded from a canvas, so its format is whatever the browser will encode. Chrome, Edge and Safari on a normal desktop write H.264 in an MP4, which is what a client can drop into a slide deck. Firefox and some builds of Chromium have no H.264 encoder and write VP9 in a WebM, which plays in any browser but not in QuickTime, PowerPoint or most editors.</p>
+  <p>The tool does not guess at this. It records a fraction of a second, reads the bytes back, and tells you in Settings and on the render page exactly what it produced. A file is never given an <code>.mp4</code> name for something an MP4 cannot hold.</p>
+  <div class="note">If you land on WebM and need an MP4, the Python server below renders with ffmpeg and always writes H.264. So does running the film through any converter.</div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Using a paid API, and why that needs a server</h2>
+  <p class="sub">This is the one thing a static page genuinely cannot do for you.</p>
+  <p>A web page can only read a reply from another site when that site marks the reply readable, which is what the CORS rules are. An API that authenticates with a secret key normally refuses, precisely so a key cannot be used from a web page. That is a sensible rule and it is not something this tool can wave away.</p>
+  <p>So the tool does not pretend. Paste a key under Settings, press <b>Test the key</b>, and it says plainly whether calls from your browser get through. If they do, real generation works from the page. If they do not, nothing is charged and you have two honest options.</p>
+  <ul>
+    <li><b>Run the Python server from the repository.</b> It makes the same calls from the server side, where the restriction does not apply, and renders with ffmpeg. Same interface, same gates, same measurements.</li>
+    <li><b>Point the base URL at a relay you control</b> that adds the CORS headers. Only do this with a relay that is yours: anything in between sees your key.</li>
+  </ul>
+  <div class="note warn"><strong>The key lives in this browser.</strong> A static page has no server to keep a secret on and no way to check a password before handing out its own source, so there is no access lock and there is no point pretending otherwise. The key is stored in this browser&rsquo;s storage on this device, never sent anywhere by this page, and never put in the repository. If the machine is shared, use the server version instead.</div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>The server version</h2>
+  <p class="sub">Same app, FastAPI and ffmpeg behind it. Use it for a paid key, for H.264 output, or for a shared address.</p>
+  <h3>On GitHub, in a Codespace</h3>
+  <p>GitHub&rsquo;s own container host runs it unchanged, with an HTTPS address and nothing installed locally.</p>
+  <div class="cta" style="margin:14px 0"><a class="btn ghost" href="https://github.com/codespaces/new?repo=argaurshar/Images-to-video-with-ref-video&ref=claude/app-md-review-enhance-its81i">Open in a Codespace</a></div>
+  <ul>
+    <li>The forwarded port is private to you by default, which is the right default for something holding a paid key. To share a link, open the Ports panel, right-click port 8000, choose Port Visibility, then Public.</li>
+    <li>A personal GitHub Free account includes about 120 core-hours a month plus 15 GB of storage. A codespace stops after 30 minutes idle; storage persists and batches resume where they stopped, so nothing is paid for twice.</li>
+    <li>Storage keeps billing while a codespace exists, even stopped. Delete it when a project is finished.</li>
+  </ul>
+  <h3>Always on</h3>
+  <p>For an address that is up without anyone opening anything, deploy the same repo to a container host. On Render, sign in with GitHub, choose <b>New</b>, then <b>Blueprint</b>, connect the repository and pick the branch.</p>
   <div class="note warn"><strong>Do not use the one-click Deploy to Render button for this repo.</strong> It is known to fail with &ldquo;No render.yaml file found on main branch&rdquo; when a repository&rsquo;s default branch is not main, which is the case here. Use the dashboard flow, where the branch is a dropdown.</div>
-  <div class="note warn"><strong>Do not put a paid API key on a free plan.</strong> A free instance sleeps after about fifteen idle minutes, and this app does its work in background threads rather than holding the request open. A long batch only survives while a tab is polling it, and a free plan has no persistent disk, so clips you already paid for are lost when it suspends.</div>
+  <div class="note warn"><strong>Do not put a paid API key on a free plan.</strong> A free instance sleeps after about fifteen idle minutes, and the server does its work in background threads rather than holding the request open. A long batch only survives while a tab is polling it, and a free plan has no persistent disk, so clips you already paid for are lost when it suspends.</div>
   <table>
     <tr><th></th><th>Free</th><th>Starter plus disk</th></tr>
     <tr><td>Cost</td><td>$0, no card</td><td>about $9.50 a month</td></tr>
@@ -53,22 +74,9 @@
     <tr><td>Sleeps when idle</td><td>Yes</td><td>No</td></tr>
     <tr><td>Safe with a paid key</td><td><b>No</b></td><td>Yes</td></tr>
   </table>
-  <h3>Railway</h3>
-  <p>Around $5 a month on the Hobby plan, cheaper than Render&rsquo;s paid tier. The repo ships a <code>railway.json</code> so the build is described. The difference is that Railway does not create the disk for you: after the first deploy you add a Volume mounted at <code>/data</code> and set <code>ARCHVIZ_DATA_DIR=/data</code>.</p>
-  <p class="muted">On either host, 512 MB of RAM is tight for ffmpeg and OpenCV holding 1080p frames. If a render dies with an out-of-memory error, raise the instance size rather than shortening the film.</p>
-</div></section>
-
-<section><div class="wrap">
-  <h2>Setting the key, and locking the instance</h2>
-  <figure><img src="img/gate.png" alt="The claim screen, asking the first visitor to set an access code">
-    <figcaption>A deployed copy holds a paid API key on a public address, so the first visitor claims it with an access code. After that every request needs a session, and generated films are covered by the same lock, not just the pages.</figcaption></figure>
-  <figure><img src="img/settings.png" alt="The settings panel with provider, API key, and per-image and per-clip costs">
-    <figcaption>The provider, the key and your actual per-image and per-clip costs are all set here, so the budget gate matches your real contract. The key is stored on your own instance and only ever read back as a masked hint; it never appears in the repository and never returns to the browser.</figcaption></figure>
-  <div class="note"><strong>Start on the mock provider.</strong> It costs nothing and still runs the planner, the fidelity audit, the QC suite and the ffmpeg render for real, so you can rehearse a whole project before spending anything.</div>
-</div></section>
-
-<section><div class="wrap">
-  <h2>On your own machine</h2>
+  <p>Railway works out around $5 a month on the Hobby plan. The repo ships a <code>railway.json</code> describing the build; the difference is that Railway does not create the disk for you, so after the first deploy add a Volume mounted at <code>/data</code> and set <code>ARCHVIZ_DATA_DIR=/data</code>.</p>
+  <p class="muted">On either host, 512 MB of RAM is tight for ffmpeg and OpenCV holding 1080p frames. If a render dies out of memory, raise the instance size rather than shortening the film.</p>
+  <h3>On your own machine</h3>
   <pre><code>git clone https://github.com/argaurshar/Images-to-video-with-ref-video
 cd Images-to-video-with-ref-video
 pip install -r requirements.txt
@@ -77,10 +85,14 @@ pip install -r requirements.txt
   <pre><code>docker build -t archviz .
 docker run -p 8000:8000 -v archviz-data:/data archviz</code></pre>
   <p><b>Run a single worker.</b> The batch job registry lives in the process, so a second worker would not see a running job and could start a duplicate batch and pay twice.</p>
+  <figure><img src="img/settings.png" alt="The settings panel with provider, API key, and per-image and per-clip costs">
+    <figcaption>On the server version the provider, the key and your actual per-image and per-clip costs are set in the app, so the budget gate matches your real contract. The key is stored on your own instance and only ever read back as a masked hint.</figcaption></figure>
+  <div class="note"><strong>Start on the demo generator either way.</strong> It costs nothing and still runs the planner, the fidelity audit, the QC suite and the render for real, so you can rehearse a whole project before spending anything.</div>
 </div></section>
+
 <footer><div class="wrap">
   <p><a href="https://github.com/argaurshar/Images-to-video-with-ref-video">Source on GitHub</a> · <a href="https://github.com/argaurshar/Images-to-video-with-ref-video/blob/claude/app-md-review-enhance-its81i/SPEC.md">The full specification</a></p>
-  <p>Screenshots show the app running on its mock provider with synthetic test renders, so the buildings are placeholder shapes. The interface, the measurements and the numbers are real.</p>
+  <p>Screenshots show the app running on its demo generator with synthetic test renders, so the buildings are placeholder shapes. The interface, the measurements and the numbers are real.</p>
 </div></footer>
 </body>
 </html>

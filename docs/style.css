@@ -104,3 +104,8 @@ footer a{color:var(--muted);text-decoration:underline}
   section{padding:34px 0}
   .steps li{padding-left:38px}
 }
+
+/* the one link that matters on every page: the tool itself */
+.nav nav a.navcta{color:#0e0e10;background:var(--gold);border-radius:999px;padding:5px 12px;font-weight:600}
+.nav nav a.navcta:hover{background:#e6c37e;color:#0e0e10}
+@media (max-width:640px){.nav nav a.navcta{padding:4px 10px}}
