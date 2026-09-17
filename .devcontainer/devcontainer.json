@@ -1,0 +1,36 @@
+{
+  "name": "ArchViz Cinematic Engine",
+  "build": { "dockerfile": "Dockerfile", "context": ".." },
+
+  // The app lives on 8000. Codespaces forwards it and gives it an HTTPS
+  // address on *.app.github.dev, which is the URL you actually use.
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "ArchViz Cinematic Engine",
+      "onAutoForward": "openPreview",
+      // Private means only you, signed in to GitHub, can open it. That is the
+      // safe default because this instance holds a paid API key. To send a
+      // link to a client, change it to Public in the Ports panel: right-click
+      // the port, Port Visibility, Public.
+      "visibility": "private"
+    }
+  },
+
+  // Projects, renders and the saved API key live here. It is inside the
+  // codespace's own storage, so it survives the codespace stopping and
+  // restarting, and an interrupted batch resumes instead of paying twice.
+  "containerEnv": { "ARCHVIZ_DATA_DIR": "/workspaces/data" },
+
+  "postCreateCommand": "mkdir -p /workspaces/data && chmod 700 /workspaces/data && pip install --no-cache-dir -r requirements.txt",
+  "postAttachCommand": {
+    "server": "uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --workers 1"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"],
+      "settings": { "python.defaultInterpreterPath": "/usr/local/bin/python" }
+    }
+  }
+}

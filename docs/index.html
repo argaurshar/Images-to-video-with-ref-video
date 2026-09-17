@@ -109,15 +109,13 @@
 
 <section id="run">
   <h2>Run it</h2>
-  <p class="sub">A container host, then two fields inside the app. Nothing installed.</p>
-  <p>Sign in to Render with GitHub, choose <strong>New &gt; Blueprint</strong>, connect this repository and pick the branch. Render reads the blueprint in the repo and builds the container. When it goes live you get a URL. Open it, set an access code, then paste your Freepik key under Settings and press "Test the key". There is no terminal step and nothing to configure in a hosting dashboard.</p>
-  <p><a class="btn" href="https://github.com/argaurshar/Images-to-video-with-ref-video#run-it-in-the-cloud-with-nothing-installed">Deployment steps</a></p>
-  <div class="note"><strong>It locks itself to you.</strong> The instance holds a paid API key on a public address, so the first visitor claims it with an access code and every request after that needs a session. Generated films are covered by the same lock, not just the pages.</div>
-  <div class="note"><strong>Do not put a paid key on a free plan.</strong> A free instance sleeps after about fifteen idle minutes, and this app does its work in background threads rather than holding the request open. A long batch only survives while a tab is polling it, and a free plan has no persistent disk, so clips you already paid for are lost when it suspends. Free is for the mock provider, which costs nothing and still runs the audit, the QC suite and the render for real.</div>
-  <div class="note"><strong>Why this page is not the app.</strong> GitHub Pages serves static files. The engine is a Python server that runs ffmpeg and OpenCV and keeps background jobs alive for tens of minutes, so it needs a container host. This page documents it.</div>
-  <p>To run it on your own machine instead:</p>
-  <pre>pip install -r requirements.txt
-./run.sh            # http://127.0.0.1:8000</pre>
+  <p class="sub">On GitHub itself, in a Codespace. Nothing installed.</p>
+  <p><a class="btn" href="https://github.com/codespaces/new?repo=argaurshar/Images-to-video-with-ref-video&ref=claude/app-md-review-enhance-its81i">Open in a Codespace</a></p>
+  <p>GitHub builds the container from the repository, installs the dependencies, starts the server and forwards its port, giving you an HTTPS address on app.github.dev. Open it, set an access code, then paste your Freepik key under Settings. There is no terminal step and nothing to install.</p>
+  <p>A personal GitHub Free account includes about 120 core-hours a month, roughly 60 hours on the default machine, plus 15 GB of storage. The forwarded port is private by default, so only you can open it; make it public from the Ports panel when you want to send a client a link.</p>
+  <div class="note"><strong>It locks itself to you.</strong> The instance holds a paid API key, so the first visitor claims it with an access code and every request after that needs a session. Generated films are covered by the same lock, not just the pages.</div>
+  <p>A codespace stops after thirty minutes idle, so a long clip batch is interrupted if you close the tab. That is survivable: the storage persists and batches resume where they stopped, without paying twice. For an address that is always live without you opening anything, deploy the same repository to a container host such as Render or Railway.</p>
+  <div class="note"><strong>Why this page is not the app.</strong> GitHub Pages serves static files. The engine is a Python server that runs ffmpeg and OpenCV and keeps background jobs alive for tens of minutes, so it needs somewhere that runs containers. A Codespace is exactly that, on GitHub.</div>
 </section>
 
 <section>

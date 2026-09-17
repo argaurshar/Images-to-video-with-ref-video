@@ -13,40 +13,59 @@ The app enforces the spec's laws server-side: every still comes from an original
 - **Batches that survive a crash**: the still board and the clip run commit and account for each item as it completes, so a run that dies partway keeps everything it paid for and resumes rather than paying twice. Long runs go to a background job with live progress, because fourteen clips on a real provider is tens of minutes, not one HTTP request.
 - **Sequence editor, branding, final render**: drag ordering with a light-arc strip and continuity warnings; title cards, stage stamp and disclaimer; ffmpeg render at 30 fps with an ambience bed normalised to −16 LUFS; crop-only variants; a stills pack; a project record (JSON and HTML) with every prompt, audit, QC table, approval and cost.
 
-## Run it
-
-```bash
-pip install -r requirements.txt
-./run.sh            # http://127.0.0.1:8000
-```
-
-That runs on the **mock provider**: stills are the hub render with a season and light treatment, clips are made locally with ffmpeg. Nothing is charged, but the whole pipeline, the audit and the QC run for real, so you can rehearse a project before spending.
-
-### Real generation
-
-```bash
-export ARCHVIZ_PROVIDER=freepik
-export FREEPIK_API_KEY=...          # Freepik / Magnific API
-export ARCHVIZ_IMAGE_COST=0.08      # what your contract charges per image
-export ARCHVIZ_VIDEO_COST=0.28      # per 5 s clip
-./run.sh
-```
-
-The Freepik adapter (`backend/app/services/providers/freepik.py`) submits an image edit with the hub render as reference and an image-to-video task from the approved still, then polls. Model paths are environment variables (`FREEPIK_IMAGE_EDIT_PATH`, `FREEPIK_VIDEO_PATH`) because model names on that platform change; check them against the current API reference before a paid run. Adding another provider means one class with two methods (`generate_still`, `generate_clip`) in that folder.
-
-Optional: set `ANTHROPIC_API_KEY` and the engine asks Claude to research the location profile (climate, vegetation, wet and snow months, local signature). Without it, a built-in table covers the Bay Area, India, the Himalaya, the UK, Japan, Australia and the Gulf, and everything else gets a generic temperate profile that says so.
-
 ## The project page
 
 A page describing the app, with screenshots of the interface, is published from `docs/` to
 **https://argaurshar.github.io/Images-to-video-with-ref-video/**
 
-It is documentation, not the running app: see below for why, and for how to run the real thing.
+It is documentation, not the running app. GitHub Pages serves static files, and this is a Python server that runs ffmpeg and OpenCV with background jobs alive for tens of minutes. To actually run it, see the next section.
 
-## Run it in the cloud, with nothing installed
+## Run it on GitHub itself
 
-No terminal, no Docker on your machine, no environment variables. Two fields
-inside the app and you are working.
+The app runs unchanged inside a **GitHub Codespace**, which is GitHub's own
+container host. Nothing is installed on your machine, and you get an HTTPS URL.
+
+**[Open this repo in a Codespace](https://github.com/codespaces/new?repo=argaurshar/Images-to-video-with-ref-video&ref=claude/app-md-review-enhance-its81i)**
+
+Or from the repo page: **Code**, the **Codespaces** tab, **Create codespace**.
+
+What happens: GitHub builds the container from `.devcontainer/`, installs the
+dependencies, starts the server on port 8000 and forwards it. Click the
+`…app.github.dev` link it shows you. Then, inside the app, set an access code
+and paste your Freepik key under **Settings**.
+
+The forwarded port is **private** by default, meaning only you, signed in to
+GitHub, can open it. That is deliberate, because the instance holds a paid API
+key. To send a client a link, open the **Ports** panel, right-click port 8000,
+choose **Port Visibility**, then **Public**.
+
+### What a Codespace costs
+
+A personal GitHub Free account includes **120 core-hours a month**, which is
+about 60 hours on the default 2-core machine, plus 15 GB of storage. Running
+this app for an afternoon a week sits inside that comfortably.
+
+Two things worth knowing:
+
+- A codespace **stops after 30 minutes idle**. If a long clip batch is running
+  and you close the tab, it will be interrupted. That is survivable here: the
+  storage persists, and batches are resumable, so restarting the codespace and
+  pressing generate again continues from where it stopped and does not pay for
+  anything twice.
+- Storage keeps billing while a codespace exists, even stopped. Delete it when
+  a project is finished.
+
+### If you want it always on instead
+
+A Codespace is the right answer for working on projects yourself. It is not a
+service that stays up for other people. For an address that is always live,
+deploy the same repo to Render or Railway; see below.
+
+## Run it on an always-on host
+
+GitHub does not host long-running web services, so for an address that stays
+up without you opening a codespace, use a container host. Still no terminal and
+no Docker on your machine.
 
 ### Render, the path this repo is set up for
 
@@ -118,6 +137,31 @@ pip install -r requirements.txt && ./run.sh      # http://127.0.0.1:8000
 **Run a single worker.** The batch job registry lives in the process, so a
 second worker would not see a running job and could start a duplicate batch and
 pay twice.
+
+## Providers
+
+The app starts on the **mock provider**: stills are the hub render with a season
+and light treatment, and clips are made locally with ffmpeg. Nothing is charged,
+but the pipeline, the audit, the QC suite and the render all run for real, so a
+whole project can be rehearsed before any money is spent.
+
+Switch to real generation inside the app, under **Settings**: choose the Freepik
+provider, paste your key, and press **Test the key**. The key is stored on your
+own instance, never in this repository and never sent back to your browser. The
+per-image and per-clip costs are set in the same place so the budget gate can
+match your actual contract.
+
+The Freepik adapter (`backend/app/services/providers/freepik.py`) submits an
+image edit with the hub render as reference and an image-to-video task from the
+approved still, then polls. Model paths are environment variables
+(`FREEPIK_IMAGE_EDIT_PATH`, `FREEPIK_VIDEO_PATH`) because model names on that
+platform change. Adding another provider means one class with two methods,
+`generate_still` and `generate_clip`, in that folder.
+
+Optional: set `ANTHROPIC_API_KEY` and the engine asks Claude to research the
+location profile. Without it, a built-in table covers the Bay Area, India, the
+Himalaya, the UK, Japan, Australia and the Gulf, and anything else gets a
+generic temperate profile that says so.
 
 ## Long runs
 
