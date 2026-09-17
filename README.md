@@ -36,6 +36,13 @@ The Freepik adapter (`backend/app/services/providers/freepik.py`) submits an ima
 
 Optional: set `ANTHROPIC_API_KEY` and the engine asks Claude to research the location profile (climate, vegetation, wet and snow months, local signature). Without it, a built-in table covers the Bay Area, India, the Himalaya, the UK, Japan, Australia and the Gulf, and everything else gets a generic temperate profile that says so.
 
+## The project page
+
+A page describing the app, with screenshots of the interface, is published from `docs/` to
+**https://argaurshar.github.io/Images-to-video-with-ref-video/**
+
+It is documentation, not the running app: see below for why, and for how to run the real thing.
+
 ## Deploying it
 
 This is a Python service, not a static site. It needs a server process, a writable disk and a secret API key, so **GitHub Pages cannot run it** — Pages serves static files only. The `docs/` folder publishes a project page to Pages; the app itself needs somewhere that runs containers.
