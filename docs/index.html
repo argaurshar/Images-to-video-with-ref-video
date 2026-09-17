@@ -109,12 +109,12 @@
 
 <section id="run">
   <h2>Run it</h2>
-  <p class="sub">One button, then two fields inside the app. Nothing installed.</p>
-  <p><a class="btn" href="https://render.com/deploy?repo=https://github.com/argaurshar/Images-to-video-with-ref-video">Deploy to Render</a></p>
-  <p>Render signs you in with GitHub, reads the blueprint in the repository and builds the container. When it finishes you get a URL. Open it and the app asks you to set an access code, then to paste your Freepik API key under Settings. There is no terminal step and nothing to configure in a hosting dashboard.</p>
-  <div class="note"><strong>It locks itself to you.</strong> The instance holds a paid API key on a public address, so the first visitor claims it with an access code and every request after that needs a session. Generated films are covered by the same lock, not just the pages. Claim it as soon as it boots.</div>
-  <p>The blueprint defaults to the free plan, which needs no credit card. On free there is no persistent disk, so projects, renders and the saved key are wiped when the service restarts or wakes from sleep, and it sleeps after about fifteen minutes idle. That is fine for trying the pipeline on the mock provider, which costs nothing and still runs the audit, the QC suite and the render for real. For client work, switch the plan to starter and enable the disk, which is around $9.50 a month.</p>
-  <div class="note"><strong>Why this page is not the app.</strong> GitHub Pages serves static files. The engine is a Python server that runs ffmpeg and OpenCV and keeps background jobs alive for tens of minutes, so it needs a container host. This page documents it; the button above runs it.</div>
+  <p class="sub">A container host, then two fields inside the app. Nothing installed.</p>
+  <p>Sign in to Render with GitHub, choose <strong>New &gt; Blueprint</strong>, connect this repository and pick the branch. Render reads the blueprint in the repo and builds the container. When it goes live you get a URL. Open it, set an access code, then paste your Freepik key under Settings and press "Test the key". There is no terminal step and nothing to configure in a hosting dashboard.</p>
+  <p><a class="btn" href="https://github.com/argaurshar/Images-to-video-with-ref-video#run-it-in-the-cloud-with-nothing-installed">Deployment steps</a></p>
+  <div class="note"><strong>It locks itself to you.</strong> The instance holds a paid API key on a public address, so the first visitor claims it with an access code and every request after that needs a session. Generated films are covered by the same lock, not just the pages.</div>
+  <div class="note"><strong>Do not put a paid key on a free plan.</strong> A free instance sleeps after about fifteen idle minutes, and this app does its work in background threads rather than holding the request open. A long batch only survives while a tab is polling it, and a free plan has no persistent disk, so clips you already paid for are lost when it suspends. Free is for the mock provider, which costs nothing and still runs the audit, the QC suite and the render for real.</div>
+  <div class="note"><strong>Why this page is not the app.</strong> GitHub Pages serves static files. The engine is a Python server that runs ffmpeg and OpenCV and keeps background jobs alive for tens of minutes, so it needs a container host. This page documents it.</div>
   <p>To run it on your own machine instead:</p>
   <pre>pip install -r requirements.txt
 ./run.sh            # http://127.0.0.1:8000</pre>

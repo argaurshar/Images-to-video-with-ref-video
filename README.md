@@ -45,64 +45,79 @@ It is documentation, not the running app: see below for why, and for how to run 
 
 ## Run it in the cloud, with nothing installed
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/argaurshar/Images-to-video-with-ref-video)
+No terminal, no Docker on your machine, no environment variables. Two fields
+inside the app and you are working.
 
-That button is the whole setup. You sign in to Render with GitHub, it reads
-`render.yaml` from this repo, and it builds the Dockerfile for you. No terminal,
-no Docker on your machine, no environment variables to fill in.
+### Render, the path this repo is set up for
 
-When the build finishes you get a URL. Open it and the app asks you to do two
-things, both inside the app itself:
+1. Go to **render.com**, click **Get Started**, then **GitHub**, and authorise Render.
+2. Click **New +** (top right), then **Blueprint**.
+3. Connect this repository. In the **Branch** dropdown pick
+   `claude/app-md-review-enhance-its81i`.
+4. Render reads `render.yaml` and shows one service. Click **Apply**.
+5. Wait for the build. The first one takes several minutes because it installs
+   OpenCV and ffmpeg. When the status turns **Live**, click the
+   `…onrender.com` link.
 
-1. **Set an access code.** The instance holds your paid API key and lives on a
-   public address, so it locks itself to you. Until you claim it, anyone with
-   the URL could use it.
-2. **Paste your Freepik API key** under Settings, choose the Freepik provider,
-   and press "Test the key" to confirm it works before anything is charged.
+Then, inside the app: set an access code, open **Settings**, paste your Freepik
+key, choose the Freepik provider, and press **Test the key**.
 
-That is it. The key is stored on your server, never in this repository and
-never sent back to your browser.
+> **Use the dashboard flow above, not the "Deploy to Render" button.** The
+> button is known to fail with *"No render.yaml file found on main branch"*
+> when a repository's default branch is not `main`, which is the case here.
 
-### What the free plan actually gives you
+### What the free plan really means
 
-The blueprint defaults to Render's free plan so you can deploy without a credit
-card. Be aware of what that means:
+The blueprint defaults to Render's free plan so it deploys with no credit card.
+That is honest for trying the pipeline on the **mock provider**, which costs
+nothing and still runs the audit, the QC suite and the render for real.
 
-| | Free | Starter, about $9.50/month |
+**Do not run a paid API key on the free plan.** A free instance sleeps after
+about 15 minutes with no inbound request, and this app returns immediately and
+does its work in background threads. So a 30-minute clip batch only survives
+while a browser tab is actively polling it. Close the tab and the instance
+suspends mid-batch, and because the free plan has no persistent disk, the clips
+you already paid for are gone with it.
+
+For real work, edit `render.yaml`: change `plan: free` to `plan: starter` and
+uncomment the disk block.
+
+| | Free | Starter + disk |
 |---|---|---|
-| Projects and renders survive a restart | No, wiped | Yes, on a 10 GB disk |
-| Your saved API key survives a restart | No, re-enter it | Yes |
-| Sleeps when idle | Yes, ~50s to wake | No |
-| Memory | 512 MB, tight for long films | 512 MB, always on |
+| Cost | $0, no card | about $9.50/month |
+| Projects, renders, saved key survive a restart | No | Yes |
+| Sleeps when idle | Yes | No |
+| Safe to use a paid API key | **No** | Yes |
 
-Free is genuinely fine for trying the whole pipeline on the mock provider,
-which costs nothing and still exercises the audit, the QC suite and the render.
-For real client work, open `render.yaml`, change `plan: free` to `plan: starter`
-and uncomment the disk block.
+One caveat on either plan: 512 MB of RAM is tight for ffmpeg and OpenCV holding
+1080p frames. If renders fail with out-of-memory errors, raise the instance
+size rather than shortening the film.
+
+### Railway, if you want it cheaper
+
+Railway works out around **$5/month** on its Hobby plan, which is less than
+Render's paid tier. The repo ships a `railway.json` so the build is described.
+The difference is that Railway does not create the disk for you: after the first
+deploy you add a **Volume** mounted at `/data`, and set `ARCHVIZ_DATA_DIR=/data`
+in the Variables tab. Railway's free trial is not enough for this app, because
+its volume cap is far below what renders need.
 
 ### Why it cannot run on GitHub Pages
 
-Pages serves static files. This is a Python server that runs ffmpeg and OpenCV
-and keeps background jobs alive for tens of minutes, so it needs a container
-host. The Pages site at
-https://argaurshar.github.io/Images-to-video-with-ref-video/ is documentation
-about the app, not the app.
+Pages serves static files. This is a Python server running ffmpeg and OpenCV
+with background jobs alive for tens of minutes, so it needs a container host.
+The page at https://argaurshar.github.io/Images-to-video-with-ref-video/
+documents the app; it is not the app.
 
-### Running it on your own machine instead
+### On your own machine instead
 
 ```bash
 pip install -r requirements.txt && ./run.sh      # http://127.0.0.1:8000
 ```
 
-Or with Docker:
-
-```bash
-docker build -t archviz . && docker run -p 8000:8000 -v archviz-data:/data archviz
-```
-
-**Run a single worker.** The batch job registry lives in the process. A second
-worker would not see a running job, so it could start a duplicate batch and pay
-twice. Scale with a larger machine instead.
+**Run a single worker.** The batch job registry lives in the process, so a
+second worker would not see a running job and could start a duplicate batch and
+pay twice.
 
 ## Long runs
 

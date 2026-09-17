@@ -105,12 +105,21 @@ async function openSettings() {
       <label class="f">cost per 5s clip<input id="set_vc" type="number" step="0.01" min="0" value="${st.video_cost}"></label>
     </div>
     ${st.key_from_env ? `<p class="muted">A key is currently coming from the server environment. Anything you paste here overrides it.</p>` : ""}
+    <div id="set_warn" class="warn-list" style="list-style:none;padding:0;${st.provider === "freepik" ? "" : "display:none"}">
+      Real generation spends real money. If this instance is on a free hosting plan it has no
+      persistent disk and sleeps when idle, so a long batch can be suspended part-way and the clips
+      you already paid for are lost. Use a plan with a disk before running a paid key.
+    </div>
     <div class="row" style="margin-top:12px">
       <button class="btn" id="set_save">Save</button>
       <button class="btn secondary" id="set_test">Test the key</button>
       <button class="btn secondary" id="set_logout">Sign out</button>
     </div>
     <div id="set_result" class="muted" style="margin-top:10px"></div>`);
+  el("set_provider").onchange = () => {
+    const w = el("set_warn");
+    if (w) w.style.display = el("set_provider").value === "freepik" ? "" : "none";
+  };
   el("set_save").onclick = () => busy(async () => {
     const body = { provider: el("set_provider").value, image_cost: +el("set_ic").value, video_cost: +el("set_vc").value };
     const k = el("set_key").value; if (k) body.freepik_api_key = k;

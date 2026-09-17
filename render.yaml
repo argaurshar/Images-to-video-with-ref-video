@@ -1,4 +1,7 @@
-# One-click deploy: https://render.com/deploy?repo=https://github.com/argaurshar/Images-to-video-with-ref-video
+# Deploy from the Render dashboard: New > Blueprint > connect this repo.
+# Do NOT use the "Deploy to Render" button for this repo: it is known to fail
+# with "No render.yaml file found on main branch" when the default branch is
+# not main, which is the case here.
 #
 # Defaults to the FREE plan so it can be deployed with no credit card and no
 # local tooling. Nothing else needs configuring: open the URL the deploy gives
@@ -18,6 +21,9 @@ services:
   - type: web
     name: archviz-cinematic-engine
     runtime: docker
+    # Pinned because this repo's default branch is not "main" and the
+    # documented fallback is contradictory between sources.
+    branch: claude/app-md-review-enhance-its81i
     plan: free
     healthCheckPath: /api/health
     autoDeploy: true
