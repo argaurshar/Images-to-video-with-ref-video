@@ -20,7 +20,7 @@ import { runQC, meanBrightness } from "./qc.js";
 import { makeProvider, testProvider, ProviderError } from "./providers.js";
 import { renderFilm, renderCrop, verify, stillsPack, projectRecord } from "./render.js";
 import { drawToImg, imgToCanvas } from "./imaging.js";
-import { canvasOf, cropLoss, thumbnail, blobToImage, canvasToBlob } from "./compose.js";
+import { canvasOf, cropLoss, thumbnail, blobToImage, canvasToBlob, prepareUpload } from "./compose.js";
 import { posterBlob } from "./video.js";
 import { makeZip, readZip, bytesOf, textBytes } from "./zip.js";
 
@@ -393,27 +393,45 @@ on("POST", "/api/projects/import", async (_m, body) => {
 on("POST", "/api/projects/:pid/hubs", async (m, body) => {
   const p = await load(m.pid);
   const files = body.getAll ? body.getAll("files") : [];
-  if (!files.length || p.hubs.length + files.length > 8) throw new ApiError(400, "1 to 8 renders per project");
+  if (!files.length) throw new ApiError(400, "no image was picked");
+  if (p.hubs.length + files.length > 8) {
+    throw new ApiError(400, `eight renders per project is the limit; this one has ${p.hubs.length} and you picked ${files.length}`);
+  }
+  const notes = [];
   for (const f of files) {
-    if (!/^image\//.test(f.type)) throw new ApiError(400, `unsupported image type ${f.type || f.name}`);
-    let img;
-    try { img = await blobToImage(f); } catch { throw new ApiError(400, `${f.name} is not a readable image`); }
+    // A photo picked from an iPhone gallery can arrive with no type at all, so
+    // the name decides when the header does not.
+    const looksImage = /^image\//i.test(f.type) || /\.(jpe?g|png|webp|heic|heif|gif|bmp|avif)$/i.test(f.name || "");
+    if (!looksImage) throw new ApiError(400, `${f.name || "that file"} is not an image`);
+    let prepared;
+    try {
+      prepared = await prepareUpload(f);
+    } catch {
+      const heic = /heic|heif/i.test(f.type) || /\.(heic|heif)$/i.test(f.name || "");
+      throw new ApiError(400, heic
+        ? `${f.name} is an Apple HEIC photo and this browser cannot decode it. On the iPhone, set Settings › Camera › Formats to "Most Compatible" and take it again, or open this page in Safari, which reads HEIC natively.`
+        : `${f.name || "that file"} is not a readable image`);
+    }
     const id = uid("hub");
     const path = `projects/${p.id}/hubs/${id}.jpg`;
     const thumb = `projects/${p.id}/thumbs/${id}.jpg`;
-    await db.putFile(path, f);
-    await db.putFile(thumb, await thumbnail(img, img.naturalWidth, img.naturalHeight));
-    const detected = analyseHub(drawToImg(img, 640), img.naturalWidth, img.naturalHeight);
+    await db.putFile(path, prepared.blob);
+    await db.putFile(thumb, await thumbnail(prepared.img, prepared.width, prepared.height));
+    const detected = analyseHub(drawToImg(prepared.img, 640), prepared.width, prepared.height);
+    if (prepared.from) {
+      notes.push(`${f.name} was ${prepared.from[0]}×${prepared.from[1]} and has been resampled to ${prepared.width}×${prepared.height}. Nothing was cropped; a phone cannot hold a dozen full-size photos in canvas memory.`);
+    }
     p.hubs.push({
-      id, filename: f.name, path, cls: detected.suggested_class,
-      width: img.naturalWidth, height: img.naturalHeight, detected,
-      camera_faces: null, continuity_group: null, label: f.name.replace(/\.[^.]+$/, ""),
+      id, filename: f.name || `render-${p.hubs.length + 1}.jpg`, path, cls: detected.suggested_class,
+      width: prepared.width, height: prepared.height, detected,
+      camera_faces: null, continuity_group: null,
+      label: (f.name || `render ${p.hubs.length + 1}`).replace(/\.[^.]+$/, ""),
       materials: "", elements: "",
     });
   }
   p.budget = await estimate(p);
   await save(p);
-  return p;
+  return { project: p, notes };
 });
 
 on("PATCH", "/api/projects/:pid/hubs/:hid", async (m, body) => {
@@ -458,12 +476,21 @@ on("PUT", "/api/projects/:pid/intake", async (m, body) => {
     const loss = cropLoss(h.width, h.height, p.intake.aspect);
     if (loss > 0.15) {
       warnings.push(`${h.filename} is ${h.detected.aspect}; cropping it to ${p.intake.aspect} loses ` +
-        `${Math.round(loss * 100)}% of the frame. Re-render it at the target ratio if the framing matters.`);
+        `${Math.round(loss * 100)}% of the frame.`);
     }
   }
+  // Which ratio would cost least across all of them. A phone camera shoots 4:3
+  // and the default is 16:9, so this is the first thing most people meet;
+  // telling them to re-render is no use when the source is a photograph.
+  const alternatives = warnings.length
+    ? ["16:9", "9:16", "1:1", "4:5"]
+        .map((a) => ({ aspect: a, worst: Math.max(...p.hubs.map((h) => cropLoss(h.width, h.height, a))) }))
+        .sort((x, y) => x.worst - y.worst)
+        .map((x) => ({ aspect: x.aspect, loss: Math.round(x.worst * 100) }))
+    : [];
   p.stage = "intake";
   await save(p);
-  return { project: p, warnings };
+  return { project: p, warnings, alternatives };
 });
 
 on("POST", "/api/projects/:pid/budget/confirm", async (m) => {
@@ -925,12 +952,15 @@ on("POST", "/api/projects/:pid/render", async (m, _b, q) => {
     const logo = p.branding.logo_path ? await db.getFile(p.branding.logo_path) : null;
     // the clips carry their class so the bed can follow it (spec 12.5)
     ordered.forEach((c, i) => { clips[i].cls = c.cls; clips[i].chapter = (shotOf(p, c.shot_n) || {}).chapter || 1; });
+    // the render size is the caller's choice, because a phone cannot hold a
+    // 1080p canvas, five video elements and an encoder at once
+    const scale = Math.min(1, Math.max(0.25, Number(q.get("scale")) || 1));
     job.current = "recording the film in real time";
-    const film = await renderFilm(p, clips, beds, logo, (frac, label) => { job.current = `film · ${label}`; });
+    const film = await renderFilm(p, clips, beds, logo, (frac, label) => { job.current = `film · ${label}`; }, scale);
     const filmPath = `projects/${p.id}/deliverables/film.${film.ext}`;
     await db.putFile(filmPath, film.blob);
     p.deliverables.film = filmPath;
-    p.deliverables.verification = await verify(film.blob, film.expected, p.intake.aspect, film.usedUploaded, film.info);
+    p.deliverables.verification = await verify(film.blob, film.expected, p.intake.aspect, film.usedUploaded, film.info, [film.width, film.height]);
     job.done += 1;
     await save(p);
 
@@ -939,7 +969,7 @@ on("POST", "/api/projects/:pid/render", async (m, _b, q) => {
       if (a === p.intake.aspect) continue;
       job.current = `crop ${a}`;
       try {
-        const crop = await renderCrop(film.blob, a, () => {});
+        const crop = await renderCrop(film.blob, a, () => {}, scale);
         const cp = `projects/${p.id}/deliverables/film_${a.replace(":", "x")}.${crop.ext}`;
         await db.putFile(cp, crop.blob);
         p.deliverables.crops[a] = cp;

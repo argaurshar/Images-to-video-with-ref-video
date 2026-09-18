@@ -57,6 +57,37 @@ export function canvasToBlob(cv, type = "image/jpeg", quality = 0.92) {
   return new Promise((r) => cv.toBlob(r, type, quality));
 }
 
+/** Broadly readable still formats. Anything else is re-encoded on the way in,
+    so a project exported from one device opens on another. */
+const PORTABLE = /^image\/(jpeg|png|webp)$/i;
+
+/** Prepare a picked photo for use as a hub render.
+
+    A phone camera hands over a 12-megapixel image, and everything downstream
+    draws that into a canvas: the analysis, two hero variants, a still per
+    shot, then a clip per still. iOS caps how much canvas memory a page may
+    hold, so a few full-size photos are enough to have the tab killed with no
+    error worth reading. Anything above `maxDim` on its long edge is therefore
+    resampled once, here, and the smaller image is what the project keeps.
+
+    That is a resolution change, not a reframe: the whole picture is kept and
+    Law 6 is untouched. The caller is told so it can say so.
+
+    An orientation tag is applied by the decode, because an <img> element
+    honours EXIF, which is why a photo taken sideways is not stored sideways. */
+export async function prepareUpload(file, maxDim = 2048) {
+  const img = await blobToImage(file);
+  const w = img.naturalWidth, h = img.naturalHeight;
+  if (!w || !h) throw new Error("that image decoded to nothing");
+  const longEdge = Math.max(w, h);
+  const s = longEdge > maxDim ? maxDim / longEdge : 1;
+  if (s === 1 && PORTABLE.test(file.type)) return { blob: file, img, width: w, height: h, from: null };
+  const cv = canvasOf(Math.round(w * s), Math.round(h * s));
+  cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+  const blob = await canvasToBlob(cv, "image/jpeg", 0.92);
+  return { blob, img: await blobToImage(blob), width: cv.width, height: cv.height, from: s === 1 ? null : [w, h] };
+}
+
 /** A thumbnail at a fixed width, used everywhere the UI shows a tile. */
 export async function thumbnail(src, sw, sh, maxW = 480) {
   const s = sw > maxW ? maxW / sw : 1;

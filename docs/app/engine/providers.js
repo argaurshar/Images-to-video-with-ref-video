@@ -114,7 +114,11 @@ class DemoProvider {
 
   async generateClip(stillBlob, prompt, negative, seconds, aspect, onProgress) {
     const img = await blobToImage(stillBlob);
-    const w = Math.min(1280, img.naturalWidth), h = Math.round((w / img.naturalWidth) * img.naturalHeight);
+    // A phone encodes a 1280-wide clip slowly and then has to hold several of
+    // them open to cut the film, so the demo works at a size the device can
+    // actually sustain. A real provider returns whatever it returns.
+    const cap = matchMedia("(max-width: 760px), (pointer: coarse)").matches ? 854 : 1280;
+    const w = Math.min(cap, img.naturalWidth), h = Math.round((w / img.naturalWidth) * img.naturalHeight);
     const cv = canvasOf(w, h);
     const ctx = cv.getContext("2d");
     const p = readPrompt(prompt);

@@ -148,9 +148,10 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
     and out over the last 3 s; an overlaid title fades in at 0.6 s and is gone
     by 4.0 s so the opening shot finishes clean; a solid card holds for 3 s
     with 0.6 s fades. */
-export async function renderFilm(project, clips, beds, logo, onProgress) {
+export async function renderFilm(project, clips, beds, logo, onProgress, scale = 1) {
   const aspect = project.intake.aspect;
-  const [W, H] = RES[aspect] || RES["16:9"];
+  const [FW, FH] = RES[aspect] || RES["16:9"];
+  const [W, H] = [Math.round(FW * scale) & ~1, Math.round(FH * scale) & ~1];
   const b = project.branding;
   const cv = canvasOf(W, H);
   const ctx = cv.getContext("2d");
@@ -238,13 +239,14 @@ export async function renderFilm(project, clips, beds, logo, onProgress) {
   videos.forEach((v) => { v.pause(); URL.revokeObjectURL(v.src); });
   try { await actx.close(); } catch { /* already closed */ }
 
-  return { blob: out.blob, ext: out.ext, mime: out.mime, info: out.info, expected: total, usedUploaded };
+  return { blob: out.blob, ext: out.ext, mime: out.mime, info: out.info, expected: total, usedUploaded, width: W, height: H };
 }
 
 /** A crop-only variant: never a re-frame, never an outpaint. Recorded the same
     way, from the rendered film. */
-export async function renderCrop(filmBlob, aspect, onProgress) {
-  const [W, H] = RES[aspect];
+export async function renderCrop(filmBlob, aspect, onProgress, scale = 1) {
+  const [FW, FH] = RES[aspect];
+  const [W, H] = [Math.round(FW * scale) & ~1, Math.round(FH * scale) & ~1];
   const v = await videoFor(filmBlob);
   const seconds = durationOf(v);
   if (!seconds) throw new Error("the film has no readable duration to crop from");
@@ -268,8 +270,8 @@ export async function renderCrop(filmBlob, aspect, onProgress) {
 }
 
 /** Measure what was actually produced, rather than trusting the plan. */
-export async function verify(filmBlob, expected, aspect, usedUploadedBed, info) {
-  const [W, H] = RES[aspect] || RES["16:9"];
+export async function verify(filmBlob, expected, aspect, usedUploadedBed, info, size) {
+  const [W, H] = size || RES[aspect] || RES["16:9"];
   const { frames, meta } = await sampleFrames(filmBlob, { sampleFps: 2, maxW: 200, maxFrames: 90 });
   const arc = frames.map((f) => Math.round(I.luminance(f) * 1000) / 1000);
   let lufs = null;

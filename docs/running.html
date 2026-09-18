@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run it — ArchViz Cinematic Engine</title>
-<meta name="description" content="The engine runs in your browser with nothing installed. A server is only needed to drive a paid generation API.">
+<meta name="description" content="The engine runs in any browser, phone included, with nothing installed. A server is only needed to drive a paid generation API.">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22%23d9b46a%22/></svg>">
 </head>
@@ -16,7 +16,7 @@
 
 <div class="hero"><div class="wrap">
   <h1>Run it</h1>
-  <p class="lede">Open a tab and start. Nothing to install, no account, no server. A server only enters the picture if you want to drive a paid generation API, and that is a limit of browsers rather than of this tool.</p>
+  <p class="lede">Open a tab on a laptop or a phone and start. Nothing to install, no account, no server. A server only enters the picture if you want to drive a paid generation API, and that is a limit of browsers rather than of this tool.</p>
   <div class="cta"><a class="btn" href="app/">Open the tool</a><a class="btn ghost" href="how-it-works.html">See how it works</a></div>
 </div></div>
 
@@ -30,6 +30,22 @@
     <li><b>Generate, measure, sequence, render</b><p>Out of the box it uses a demo generator that costs nothing and still exercises every gate, so you can take a project all the way to a finished film before deciding whether to spend anything.</p></li>
   </ol>
   <div class="note"><strong>Everything stays on your machine.</strong> Projects, renders, generated stills, clips and films live in this browser&rsquo;s own storage. No server ever sees them. That is the good news and the catch: clearing site data for the address erases the lot, and another device will not see your projects. Download the film and the stills pack when a project is done, or export the whole project as one ZIP from the project list and import it on any machine.</div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>On a phone</h2>
+  <p class="sub">Same address, same tool. Open it on the phone and work from the camera roll.</p>
+  <ol class="steps">
+    <li><b>Open the link and create a project</b><p>No app, no sign-in. The projects live in the phone&rsquo;s browser.</p></li>
+    <li><b>Choose photos</b><p>That button opens the gallery. <b>Take a photo</b> opens the camera instead, which is the one to use on site.</p></li>
+    <li><b>Work through the stages by tapping</b><p>The brief is tappable options rather than a wall of dropdowns, the shot plan scrolls sideways inside its own panel, and each clip becomes its own block with its measurements under it.</p></li>
+  </ol>
+  <div class="note"><strong>Phone photos are handled as phone photos.</strong> A twelve-megapixel picture is resampled to 2048 pixels on its long edge as it comes in, because a phone cannot hold a dozen full-size images in canvas memory at once; nothing is cropped and the page says when it has done it. A phone shoots 4:3 and the default film is 16:9, so the first save offers you the ratios that keep most of the frame, one tap each. An iPhone HEIC opens in Safari, which reads the format natively; if another browser refuses it, set Settings &rsaquo; Camera &rsaquo; Formats to &ldquo;Most Compatible&rdquo;.</div>
+  <div class="note warn"><strong>A phone is for shooting, reviewing and approving; render the final film on a laptop.</strong> The render defaults to half size on a small screen, because a full 1080p canvas plus several video tracks plus an encoder is more than most phones will hold. Half size is fine to check the cut. When the film is settled, open the same project on a laptop and render it full size. Projects do not travel between devices on their own: export the ZIP from the project list and import it on the other machine.</div>
+  <div class="note warn"><strong>Leave the screen on while a clip or the film is being written.</strong> The tool asks for a wake lock so the screen does not time out, but if you switch apps the picture freezes while the clock keeps running, and the tool throws that render away rather than hand you a frozen film.</div>
+</div></section>
+
+<section><div class="wrap">
   <div class="note warn"><strong>Keep the tab in front while video is being written.</strong> Clips and the final film are recorded in real time, so a 45-second film takes about 45 seconds. A browser freezes animation in a background tab, which would record a still picture over a running clock, so the tool throws that render away rather than hand you a frozen film. Run it and let it run.</div>
 </div></section>
 

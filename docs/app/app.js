@@ -13,8 +13,11 @@
    names the next step, and an action that is blocked says what unblocks it. */
 
 import { call, ApiError, MAX_ATTEMPTS_PER_SHOT } from "./engine/api.js";
-import { fileURL, quota } from "./engine/db.js";
+import { fileURL, quota, persist } from "./engine/db.js";
 import { probe } from "./engine/recorder.js";
+import { RES } from "./engine/compose.js";
+
+const isSmallScreen = () => matchMedia("(max-width: 760px), (pointer: coarse)").matches;
 
 const STAGES = [
   ["intake", "Intake"], ["reference", "Reference"], ["plan", "Shot plan"], ["hero", "Hero gate"],
@@ -285,6 +288,9 @@ async function rHome() {
   const create = () => busy(async () => {
     const name = el("newname").value.trim();
     if (!name) throw new Error("give the project a name");
+    // asked on the gesture that starts real work, which is when Safari will
+    // grant it: without it a phone may evict the only copy of the project
+    await persist();
     P = await api("/api/projects", { body: { name } }); view = "intake"; renderChrome(); await renderAll();
   });
   el("newbtn").onclick = create;
@@ -403,8 +409,18 @@ async function rIntake() {
     <h2>Intake</h2><p class="lead">Three things: the renders, the brief, and the site. Everything downstream is derived from these, so a minute here saves a regeneration later.</p>
     <div class="card">
       <div class="sect"><h3><span class="n">1</span>Renders</h3>
-        <p class="muted">One to eight renders of one project: exterior angles, interior rooms, or both. Name the finishes on each; the prompts use your words, never invented ones. State which way the camera faces on exteriors so the sun comes from the right side. Click a render to see it full size.</p>
-        <div class="dropzone" id="drop">Drop renders here or <input type="file" id="hubfiles" multiple accept="image/*"></div>
+        <p class="muted">One to eight renders of one project: exterior angles, interior rooms, or both. On a phone, <b>Choose photos</b> opens your gallery. Name the finishes on each; the prompts use your words, never invented ones. State which way the camera faces on exteriors so the sun comes from the right side. Tap a render to see it full size.</p>
+        <div class="dropzone" id="drop">
+          <div class="pickers">
+            <label class="btn" for="hubfiles">Choose photos</label>
+            <label class="btn secondary" for="hubcamera">Take a photo</label>
+          </div>
+          <p class="muted droptip">or drop files here</p>
+          <!-- No capture attribute on the first one: that is what makes a phone
+               offer the photo library. The second forces the camera. -->
+          <input type="file" id="hubfiles" multiple accept="image/*" hidden>
+          <input type="file" id="hubcamera" accept="image/*" capture="environment" hidden>
+        </div>
         <div class="grid" style="margin-top:14px">${hubs || ""}</div>
       </div>
     </div>
@@ -461,11 +477,17 @@ async function rIntake() {
   // renders
   const drop = el("drop");
   const upload = async files => busy(async () => {
+    if (!files || !files.length) return;
     pendingIntake = readIntakeForm();
     const fd = new FormData(); [...files].forEach(f => fd.append("files", f));
-    await api(`/api/projects/${P.id}/hubs`, { body: fd }); await reload();
-  }, "analysing renders…");
-  el("hubfiles").onchange = e => upload(e.target.files);
+    const r = await api(`/api/projects/${P.id}/hubs`, { body: fd });
+    await reload();
+    // resampling a phone photo is a thing that happened to the designer's file,
+    // so it is said rather than done quietly
+    if (r.notes && r.notes.length) toast(r.notes[0]);
+  }, "reading the photos…");
+  el("hubfiles").onchange = e => { upload(e.target.files); e.target.value = ""; };
+  el("hubcamera").onchange = e => { upload(e.target.files); e.target.value = ""; };
   drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); }; drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); upload(e.dataTransfer.files); };
   el("main").querySelectorAll("[data-view]").forEach(img => img.onclick = () => { const h = hub(img.dataset.view); lightbox(h.path, `${h.label || h.filename} · ${h.width}×${h.height}`); });
@@ -488,13 +510,35 @@ async function rIntake() {
   el("save_intake").onclick = () => busy(async () => {
     const body = readIntakeForm();
     const r = await api(`/api/projects/${P.id}/intake`, { method: "PUT", body }); P = r.project;
-    if (r.warnings.length) modal(`<h3>Crop warnings (Law 6: crop, never outpaint)</h3><ul class="warn-list">${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>`);
     renderChrome(); await renderAll();
+    if (r.warnings.length) cropWarning(r);
   }, "researching the location…");
   const cb = el("confirm_budget"); if (cb) cb.onclick = () => busy(async () => {
     pendingIntake = readIntakeForm();
     await api(`/api/projects/${P.id}/budget/confirm`, { method: "POST" }); await reload(); toast("budget confirmed");
   });
+}
+
+/** The ratio change is a crop and only a crop, so a source that cannot give up
+    the difference gracefully has to be said out loud. A phone shoots 4:3 and
+    the default is 16:9, so this is the first thing most people on a phone
+    meet, and "re-render it" is no use when the source is a photograph. The
+    ratios that would cost least are offered as one tap. */
+function cropWarning(r) {
+  const best = (r.alternatives || []).filter(a => a.aspect !== P.intake.aspect).slice(0, 3);
+  modal(`<h3>Cropping, not stretching</h3>
+    <p class="muted">A ratio change is always a crop here: the engine never invents picture beyond the edge of what you gave it (Law 6). At ${esc(P.intake.aspect)} that costs you:</p>
+    <ul class="warn-list">${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
+    ${best.length ? `<p>Ratios that keep more of these frames:</p>
+      <div class="choice">${best.map(a => `<span class="chip" data-asp="${a.aspect}">${a.aspect} · loses ${a.loss}%</span>`).join("")}</div>` : ""}
+    <div style="margin-top:14px"><button class="btn" id="cropok">Keep ${esc(P.intake.aspect)}</button></div>`);
+  el("cropok").onclick = closeModal;
+  el("modal-body").querySelectorAll("[data-asp]").forEach(c => c.onclick = () => busy(async () => {
+    const body = Object.assign({}, P.intake, { aspect: c.dataset.asp });
+    const res = await api(`/api/projects/${P.id}/intake`, { method: "PUT", body });
+    P = res.project; closeModal(); renderChrome(); await renderAll();
+    toast(`aspect set to ${c.dataset.asp}`);
+  }));
 }
 
 // ------------------------------------------------------------- 2 reference
@@ -665,7 +709,7 @@ async function rClips() {
     ${blocker("clips")}
     <div id="jobbar"></div>
     <div class="card"><button class="btn" id="gen" ${locked("clips") || !missing ? "disabled" : ""}>${clips.length ? `Generate the ${missing} missing` : "Generate clips for approved stills"}</button> <span class="muted">video costs about 3.5× an image. Keep this tab in front while clips are being written.</span></div>
-    <div class="card" style="overflow:auto"><table><tr><th>shot</th><th>clip</th><th>QC</th><th>status</th><th>actions</th></tr>${rows}</table></div>`);
+    <div class="card clips-wrap" style="overflow:auto"><table><thead><tr><th>shot</th><th>clip</th><th>QC</th><th>status</th><th>actions</th></tr></thead><tbody>${rows}</tbody></table></div>`);
   el("gen").onclick = () => busy(async () => { await api(`/api/projects/${P.id}/clips/generate?background=true`, { method: "POST" }); await pollJob("clips"); await reload(); }, "generating and measuring clips…");
   el("main").querySelectorAll("[data-approve]").forEach(b => b.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/clips/${b.dataset.approve}/approve`, { method: "POST" }); await reload(); }));
   el("main").querySelectorAll("[data-cut]").forEach(b => b.onclick = () => busy(async () => { await api(`/api/projects/${P.id}/clips/${b.dataset.cut}/cut`, { method: "POST" }); await reload(); }));
@@ -743,10 +787,17 @@ async function rBranding() {
 // ---------------------------------------------------------------- 9 render
 async function rRender() {
   const D = P.deliverables; const v = D.verification || {};
+  const [FW, FH] = RES[P.intake.aspect] || RES["16:9"];
+  const sizeFor = s => `${Math.round(FW * s) & ~1}×${Math.round(FH * s) & ~1}`;
+  const small = isSmallScreen();
+  const SIZES = [[1, "Full"], [0.667, "Two thirds"], [0.5, "Half"]];
   await setHTML(el("main"), `<h2>Final render and delivery</h2><p class="lead">Normalise to the target ratio at 30 fps, hard cuts, title cards and stamp, fades, the ambience bed. Then the film, crop-only variants, the stills pack and the project record.</p>
     ${blocker("render")}
-    <div class="card"><div class="row"><span class="muted">extra crops:</span><div class="chips" id="crops">${["16:9", "9:16", "1:1", "4:5"].filter(a => a !== P.intake.aspect).map(a => `<span class="chip" data-a="${a}">${a}</span>`).join("")}</div><button class="btn" id="go" ${locked("render") ? "disabled" : ""}>${D.film ? "Render again" : "Render film"}</button></div>
-      <p class="muted">The film is written in real time, so it takes about as long as it runs, and each extra crop takes that again. Keep this tab in front while it works: a background tab freezes the picture and the render is thrown away rather than saved wrong.</p></div>
+    <div class="card"><div class="row">
+      <label class="f">render size<select id="size">${SIZES.map(([s, l]) => `<option value="${s}" ${(small ? s === 0.5 : s === 1) ? "selected" : ""}>${l} · ${sizeFor(s)}</option>`).join("")}</select></label>
+      <div class="opt"><span class="lbl">extra crops</span><div class="chips" id="crops">${["16:9", "9:16", "1:1", "4:5"].filter(a => a !== P.intake.aspect).map(a => `<span class="chip" data-a="${a}">${a}</span>`).join("")}</div></div>
+      <button class="btn" id="go" ${locked("render") ? "disabled" : ""}>${D.film ? "Render again" : "Render film"}</button></div>
+      <p class="muted">The film is written in real time, so it takes about as long as it runs, and each extra crop takes that again. Keep this page in front while it works: in the background the picture freezes while the clock keeps running, and the render is thrown away rather than saved wrong.${small ? " On a phone, half size is the default because a 1080p canvas, several video tracks and an encoder at once is more than most phones will hold. Render it full size on a laptop when the film is settled." : ""}</p></div>
     <div id="jobbar"></div>
     ${D.film ? `<div class="card"><video data-file="${D.film}" controls playsinline style="width:100%;max-height:60vh;background:#000;border-radius:8px"></video>
       <h3>Verification</h3><div class="kv"><div>Duration</div><div>${v.duration_s}s (expected ${v.expected_duration_s}s)</div><div>Resolution</div><div>${v.width}×${v.height} @ ${v.fps} fps</div><div>Loudness</div><div>${v.integrated_lufs ?? "not measurable in this browser"} dBFS · <span class="muted">${esc(v.loudness_method || "")}</span></div><div>Audio bed</div><div>${esc(v.audio_bed || "")}</div><div>Container</div><div>${esc(v.container || "")} ${v.interoperable ? "" : "<span class='tag warn'>browser playback only</span>"}</div><div>Light arc</div><div><div class="strip">${(v.brightness_arc || []).map(b => `<div style="background:rgb(${Math.round(40 + b * 215)},${Math.round(40 + b * 200)},${Math.round(40 + b * 170)})"></div>`).join("")}</div></div></div>
@@ -754,7 +805,8 @@ async function rRender() {
   el("crops").querySelectorAll(".chip").forEach(c => c.onclick = () => c.classList.toggle("on"));
   el("go").onclick = () => busy(async () => {
     const crops = [...el("crops").querySelectorAll(".chip.on")].map(c => c.dataset.a).join(",");
-    const run = api(`/api/projects/${P.id}/render?crops=${encodeURIComponent(crops)}`, { method: "POST" });
+    const scale = el("size").value;
+    const run = api(`/api/projects/${P.id}/render?crops=${encodeURIComponent(crops)}&scale=${scale}`, { method: "POST" });
     await pollJob("render"); await run; await reload();
   }, "rendering in real time…");
   const ex = el("exportproj"); if (ex) ex.onclick = (e) => { e.preventDefault(); busy(async () => { const r = await api(`/api/projects/${P.id}/export`); download(r.blob, r.filename); }, "packing the project…"); };

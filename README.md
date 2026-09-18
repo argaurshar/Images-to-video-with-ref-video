@@ -71,6 +71,26 @@ so a 45-second film takes about 45 seconds, and the tab has to stay in front.
 A background tab freezes the picture while the clock runs, so the tool discards
 that render rather than hand you a frozen film.
 
+### On a phone
+
+The same URL. **Choose photos** opens the gallery, **Take a photo** opens the
+camera, and the whole pipeline works by tapping. Phone specifics that are
+handled rather than left to bite:
+
+- A 12 MP photo is **resampled to 2048 px on its long edge** on the way in,
+  because a phone cannot hold a dozen full-size images in canvas memory. Nothing
+  is cropped, and the page says when it has done it.
+- A phone shoots 4:3 and the default film is 16:9, so the first save **offers
+  the ratios that keep most of the frame**, one tap each, instead of telling you
+  to re-render a photograph.
+- HEIC opens in Safari, which reads it natively. Another browser that refuses it
+  is told to switch the iPhone to "Most Compatible" rather than given "not a
+  readable image".
+- The render **defaults to half size on a small screen** and a **wake lock**
+  keeps the screen on while video is written. A phone is for shooting, reviewing
+  and approving; render the final film full size on a laptop, moving the project
+  across with the export ZIP.
+
 ### Moving projects around
 
 Every project can be **exported as one ZIP** (the document plus every render,

@@ -129,6 +129,17 @@ export async function record(canvas, seconds, fps, draw, { audioTrack = null, on
   // second, so the canvas stops changing while the recorder keeps running in
   // wall-clock time: the file comes out the right length with the picture
   // frozen. That is worth catching and saying rather than shipping.
+  //
+  // On a phone this is not an edge case, it is what happens when the screen
+  // times out halfway through a 45-second render. A wake lock keeps the screen
+  // on for the duration and is released whatever happens next. It is not
+  // available everywhere, and where it is missing the visibility check below
+  // still catches the damage rather than saving a frozen film.
+  let lock = null;
+  try {
+    if (navigator.wakeLock && !document.hidden) lock = await navigator.wakeLock.request("screen");
+  } catch { /* denied or unsupported: the visibility check is the backstop */ }
+
   let wasHidden = document.hidden;
   const watch = () => { if (document.hidden) wasHidden = true; };
   document.addEventListener("visibilitychange", watch);
@@ -145,6 +156,7 @@ export async function record(canvas, seconds, fps, draw, { audioTrack = null, on
     requestAnimationFrame(step);
   });
   document.removeEventListener("visibilitychange", watch);
+  if (lock) { try { await lock.release(); } catch { /* already gone */ } }
   // let the encoder drain the last frames before the track is torn down
   await new Promise((r) => setTimeout(r, 250));
   rec.stop();
@@ -154,8 +166,9 @@ export async function record(canvas, seconds, fps, draw, { audioTrack = null, on
   if (!blob.size) throw new Error("the recorder produced an empty file");
   if (wasHidden) {
     throw new Error(
-      "this tab was in the background while the video was being written, so the picture will have frozen " +
-      "while the clock kept running. Nothing was kept. Keep this tab visible and run it again."
+      "this tab left the foreground while the video was being written, so the picture will have frozen " +
+      "while the clock kept running. Nothing was kept. On a phone that usually means the screen locked or " +
+      "you switched apps: start it again and leave it on screen."
     );
   }
   // Name the file after what is actually inside it, not what was asked for.

@@ -122,6 +122,21 @@ export function publicSettings(s) {
   };
 }
 
+/** Ask the browser to treat this origin's storage as persistent.
+
+    Without it a phone treats the projects as a cache and is free to throw
+    them away when it wants space, which for the only copy of a paid batch is
+    not a cache at all. The answer is not something to argue with: Chrome
+    decides on its own signals and Safari grants it on a gesture, so the result
+    is reported and the app says plainly where the work lives either way. */
+export async function persist() {
+  if (!navigator.storage || !navigator.storage.persist) return null;
+  try {
+    if (await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch { return null; }
+}
+
 /** Rough measure of how much room is left, so a paid batch is not started
     into a quota that cannot hold its output. */
 export async function quota() {

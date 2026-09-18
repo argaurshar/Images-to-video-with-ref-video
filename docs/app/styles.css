@@ -154,6 +154,10 @@ td select, td input { width:100%; font-size:12px; padding:4px 6px; }
 .seq li .arrows { display:flex; gap:4px; padding:0 8px 8px; }
 .seq li .arrows button { flex:1; }
 
+/* The verification strip has one cell per sampled frame, which on a 25 second
+   film is about fifty. A six-pixel floor each is wider than a phone, so the
+   strip scrolls inside itself rather than pushing the page sideways. */
+.strip { overflow-x:auto; }
 .strip div { min-width:6px; }
 label.f.check { flex-direction:row; align-items:center; gap:8px; min-width:0; }
 
@@ -162,4 +166,54 @@ label.f.check { flex-direction:row; align-items:center; gap:8px; min-width:0; }
   .compare { grid-template-columns:1fr; }
   .top .about { display:none; }
   .next .btn { margin-left:0; }
+}
+
+/* ------------------------------------------------------------ phone pass */
+
+.dropzone .pickers { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+.dropzone label.btn { cursor:pointer; display:inline-block; }
+.dropzone .droptip { margin:10px 0 0; }
+
+/* A phone has nothing to drop with, so the hint is noise there and the two
+   buttons carry the whole job. Both queries, because a browser told to emulate
+   a phone reports the narrow width reliably and the coarse pointer only
+   sometimes. */
+@media (pointer: coarse), (max-width: 760px) { .dropzone .droptip { display:none; } }
+
+@media (max-width: 760px) {
+  /* Safari zooms the page when a focused field is under 16px. Every control
+     that takes text goes to 16px on small screens for that reason alone. */
+  input, select, textarea { font-size:16px; }
+  html { -webkit-text-size-adjust:100%; }
+  /* a finger needs a bigger target than a cursor */
+  button.btn, .dropzone label.btn { min-height:44px; padding:10px 16px; }
+  input, select, textarea { min-height:44px; }
+  textarea { min-height:72px; }
+  .plan-wrap td select, .plan-wrap td input { min-height:44px; }
+  button.btn.small { min-height:36px; padding:7px 12px; font-size:13px; }
+  .chip { min-height:36px; display:inline-flex; align-items:center; }
+  .choice .chip { padding:8px 14px; }
+  .steps { gap:6px; -webkit-overflow-scrolling:touch; scroll-snap-type:x proximity; }
+  .steps button { scroll-snap-align:start; min-height:40px; }
+  /* the clip table is five columns of detail; on a phone each shot becomes a
+     block instead, so nothing is cut off and nothing needs a sideways swipe */
+  .clips-wrap table, .clips-wrap tbody, .clips-wrap tr, .clips-wrap td { display:block; width:auto; }
+  .clips-wrap thead { display:none; }
+  .clips-wrap tr { border:1px solid var(--line); border-radius:10px; margin-bottom:12px; padding:10px; background:#0c0e11; }
+  .clips-wrap td { border:none; padding:6px 0; }
+  .clips-wrap td[style*="width:220px"] { width:auto !important; }
+  .tile img, .tile video { aspect-ratio:4/3; }
+  .modal-card { width:96vw; max-height:92vh; padding:16px; }
+  .lightbox img, .lightbox video { max-height:56vh; }
+  .grid { grid-template-columns:1fr; }
+  .projects { grid-template-columns:1fr; }
+  .pcard .row { flex-wrap:wrap; }
+  .strip { height:22px; }
+  .strip div { min-width:3px; }
+  .next { position:sticky; top:0; z-index:4; }
+}
+
+/* a notched phone in landscape puts the interface under the sensor housing */
+@supports (padding: max(0px)) {
+  .top, .steps, .next, .main { padding-left:max(14px, env(safe-area-inset-left)); padding-right:max(14px, env(safe-area-inset-right)); }
 }
