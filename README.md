@@ -77,6 +77,12 @@ The same URL. **Choose photos** opens the gallery, **Take a photo** opens the
 camera, and the whole pipeline works by tapping. Phone specifics that are
 handled rather than left to bite:
 
+- **JPEG, PNG and WebP are read directly**, and a JPEG is a JPEG whatever made
+  it: baseline or progressive, colour or greyscale, any subsampling, with or
+  without a filename extension. The decoder decides, not the type header, since
+  a gallery can hand over a good photo as `application/octet-stream` with no
+  name. A photo with an **EXIF orientation tag is turned upright** on the way
+  in, so a shot taken with the phone held sideways is not a film shot sideways.
 - A 12 MP photo is **resampled to 2048 px on its long edge** on the way in,
   because a phone cannot hold a dozen full-size images in canvas memory. Nothing
   is cropped, and the page says when it has done it.

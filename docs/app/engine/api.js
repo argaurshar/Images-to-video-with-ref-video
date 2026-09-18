@@ -392,25 +392,33 @@ on("POST", "/api/projects/import", async (_m, body) => {
 
 on("POST", "/api/projects/:pid/hubs", async (m, body) => {
   const p = await load(m.pid);
-  const files = body.getAll ? body.getAll("files") : [];
-  if (!files.length) throw new ApiError(400, "no image was picked");
-  if (p.hubs.length + files.length > 8) {
-    throw new ApiError(400, `eight renders per project is the limit; this one has ${p.hubs.length} and you picked ${files.length}`);
-  }
+  const all = body.getAll ? body.getAll("files") : [];
+  if (!all.length) throw new ApiError(400, "no image was picked");
+  // Eight is the limit, but picking twelve out of a gallery should not throw
+  // all twelve away: take what fits and name what did not.
+  const room = Math.max(0, 8 - p.hubs.length);
+  if (!room) throw new ApiError(400, "this project already has the maximum of eight renders; remove one first");
+  const files = all.slice(0, room);
   const notes = [];
+  if (all.length > room) {
+    const over = all.slice(room).map((f) => f.name || "unnamed");
+    notes.push(`Eight renders per project is the limit, so ${over.length === 1 ? "one was" : over.length + " were"} not added: ${over.join(", ")}.`);
+  }
   for (const f of files) {
-    // A photo picked from an iPhone gallery can arrive with no type at all, so
-    // the name decides when the header does not.
-    const looksImage = /^image\//i.test(f.type) || /\.(jpe?g|png|webp|heic|heif|gif|bmp|avif)$/i.test(f.name || "");
-    if (!looksImage) throw new ApiError(400, `${f.name || "that file"} is not an image`);
+    // The decoder is the authority on whether a file is an image, not the type
+    // header: a gallery can hand over a JPEG as application/octet-stream with
+    // no filename at all, and rejecting that on the header alone turns a
+    // perfectly good photo into "not an image". Try to decode first; the type
+    // and the name only shape the message when the decode actually fails.
     let prepared;
     try {
       prepared = await prepareUpload(f);
     } catch {
       const heic = /heic|heif/i.test(f.type) || /\.(heic|heif)$/i.test(f.name || "");
+      const named = f.name || "that file";
       throw new ApiError(400, heic
-        ? `${f.name} is an Apple HEIC photo and this browser cannot decode it. On the iPhone, set Settings › Camera › Formats to "Most Compatible" and take it again, or open this page in Safari, which reads HEIC natively.`
-        : `${f.name || "that file"} is not a readable image`);
+        ? `${named} is an Apple HEIC photo and this browser cannot decode it. On the iPhone, set Settings › Camera › Formats to "Most Compatible" and take the photo again, or open this page in Safari, which reads HEIC natively.`
+        : `${named} could not be decoded as an image. JPEG, PNG and WebP always work; HEIC needs Safari.`);
     }
     const id = uid("hub");
     const path = `projects/${p.id}/hubs/${id}.jpg`;

@@ -173,6 +173,7 @@ label.f.check { flex-direction:row; align-items:center; gap:8px; min-width:0; }
 .dropzone .pickers { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
 .dropzone label.btn { cursor:pointer; display:inline-block; }
 .dropzone .droptip { margin:10px 0 0; }
+.dropzone .formats { margin:6px 0 0; font-size:12px; }
 
 /* A phone has nothing to drop with, so the hint is noise there and the two
    buttons carry the whole job. Both queries, because a browser told to emulate

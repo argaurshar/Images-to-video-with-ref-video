@@ -409,17 +409,18 @@ async function rIntake() {
     <h2>Intake</h2><p class="lead">Three things: the renders, the brief, and the site. Everything downstream is derived from these, so a minute here saves a regeneration later.</p>
     <div class="card">
       <div class="sect"><h3><span class="n">1</span>Renders</h3>
-        <p class="muted">One to eight renders of one project: exterior angles, interior rooms, or both. On a phone, <b>Choose photos</b> opens your gallery. Name the finishes on each; the prompts use your words, never invented ones. State which way the camera faces on exteriors so the sun comes from the right side. Tap a render to see it full size.</p>
+        <p class="muted">One to eight renders of one project: exterior angles, interior rooms, or both. On a phone, <b>Choose photos</b> opens your gallery. <b>JPEG</b>, PNG and WebP are all read directly. Name the finishes on each; the prompts use your words, never invented ones. State which way the camera faces on exteriors so the sun comes from the right side. Tap a render to see it full size.</p>
         <div class="dropzone" id="drop">
           <div class="pickers">
             <label class="btn" for="hubfiles">Choose photos</label>
             <label class="btn secondary" for="hubcamera">Take a photo</label>
           </div>
           <p class="muted droptip">or drop files here</p>
+          <p class="muted formats">JPEG, PNG and WebP. HEIC from an iPhone works in Safari.</p>
           <!-- No capture attribute on the first one: that is what makes a phone
                offer the photo library. The second forces the camera. -->
-          <input type="file" id="hubfiles" multiple accept="image/*" hidden>
-          <input type="file" id="hubcamera" accept="image/*" capture="environment" hidden>
+          <input type="file" id="hubfiles" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" hidden>
+          <input type="file" id="hubcamera" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" hidden>
         </div>
         <div class="grid" style="margin-top:14px">${hubs || ""}</div>
       </div>
