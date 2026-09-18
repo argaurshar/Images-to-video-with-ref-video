@@ -11,21 +11,21 @@
 <body>
 <header class="nav"><div class="wrap">
   <a class="brand" href="index.html"><span class="dot"></span> ArchViz Cinematic Engine</a>
-  <nav><a href="index.html">Overview</a><a href="how-it-works.html">How it works</a><a href="running.html" aria-current="page">Run it</a><a href="quality.html">Quality control</a><a href="limits.html">Limits</a><a class="navcta" href="app/">Open the tool &rarr;</a></nav>
+  <nav><a href="index.html">Overview</a><a href="how-it-works.html">How it works</a><a href="running.html" aria-current="page">Run it</a><a href="quality.html">Quality control</a><a href="limits.html">Limits</a><a class="navcta" href="../">Open the tool &rarr;</a></nav>
 </div></header>
 
 <div class="hero"><div class="wrap">
   <h1>Run it</h1>
   <p class="lede">Open a tab on a laptop or a phone and start. Nothing to install, no account, no server. A server only enters the picture if you want to drive a paid generation API, and that is a limit of browsers rather than of this tool.</p>
-  <div class="cta"><a class="btn" href="app/">Open the tool</a><a class="btn ghost" href="how-it-works.html">See how it works</a></div>
+  <div class="cta"><a class="btn" href="../">Open the tool</a><a class="btn ghost" href="how-it-works.html">See how it works</a></div>
 </div></div>
 
 <section><div class="wrap">
   <h2>In your browser, right here</h2>
   <p class="sub">The whole engine is the page: the planner, the image analysis, the fidelity audit, the clip measurements and the final render.</p>
   <ol class="steps">
-    <li><b>Open the tool</b><p>It is a static page on GitHub Pages. There is nothing to sign into and nothing to wait for.</p></li>
-    <li><b>Create a project and drop in your renders</b><p>One to eight images of one project. They are read in the tab and never uploaded anywhere.</p></li>
+    <li><b>Open the tool</b><p>It is the front page of this site, a static page on GitHub Pages. There is nothing to sign into and nothing to wait for.</p></li>
+    <li><b>Create a project and add your renders</b><p>One to eight images of one project, from <b>Choose photos</b> or dropped onto the page. They are read in the tab and never uploaded anywhere. In a hurry, <b>Start a sample project</b> draws two renders and fills in the brief so you can see the whole pipeline run first.</p></li>
     <li><b>Name the finishes, state the location, approve the plan</b><p>The plan is deterministic, so the same intake always gives the same shot list and you can predict what a change will do.</p></li>
     <li><b>Generate, measure, sequence, render</b><p>Out of the box it uses a demo generator that costs nothing and still exercises every gate, so you can take a project all the way to a finished film before deciding whether to spend anything.</p></li>
   </ol>
@@ -54,57 +54,23 @@
   <h2>What the browser can and cannot encode</h2>
   <p>The film is recorded from a canvas, so its format is whatever the browser will encode. Chrome, Edge and Safari on a normal desktop write H.264 in an MP4, which is what a client can drop into a slide deck. Firefox and some builds of Chromium have no H.264 encoder and write VP9 in a WebM, which plays in any browser but not in QuickTime, PowerPoint or most editors.</p>
   <p>The tool does not guess at this. It records a fraction of a second, reads the bytes back, and tells you in Settings and on the render page exactly what it produced. A file is never given an <code>.mp4</code> name for something an MP4 cannot hold.</p>
-  <div class="note">If you land on WebM and need an MP4, the Python server below renders with ffmpeg and always writes H.264. So does running the film through any converter.</div>
+  <div class="note">If you land on WebM and need an MP4, open the film in Chrome, Edge or Safari instead, or run the file through any converter.</div>
 </div></section>
 
 <section><div class="wrap">
-  <h2>Using a paid API, and why that needs a server</h2>
-  <p class="sub">This is the one thing a static page genuinely cannot do for you.</p>
+  <h2>If something does not work</h2>
+  <p class="sub">The tool is the page, so when it fails it fails in the page, and it says so in the page.</p>
+  <p>Open the tool and press <b>Check this browser</b>, on the first screen or under Settings. It reports, one line at a time, whether the browser can store projects, decode a JPEG, open a file picker, record video and in what format, play sound and read an exported ZIP. Anything marked in red is the reason. The report copies as plain text, so you can send it on as it is.</p>
+  <p>If a page ever comes up blank or half-drawn, it says that too rather than sitting there empty: the failure is printed across the top with the same check one tap away.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Using a paid API, and why that alone needs a server</h2>
+  <p class="sub">Everything else runs in the page. This one thing genuinely cannot.</p>
   <p>A web page can only read a reply from another site when that site marks the reply readable, which is what the CORS rules are. An API that authenticates with a secret key normally refuses, precisely so a key cannot be used from a web page. That is a sensible rule and it is not something this tool can wave away.</p>
-  <p>So the tool does not pretend. Paste a key under Settings, press <b>Test the key</b>, and it says plainly whether calls from your browser get through. If they do, real generation works from the page. If they do not, nothing is charged and you have two honest options.</p>
-  <ul>
-    <li><b>Run the Python server from the repository.</b> It makes the same calls from the server side, where the restriction does not apply, and renders with ffmpeg. Same interface, same gates, same measurements.</li>
-    <li><b>Point the base URL at a relay you control</b> that adds the CORS headers. Only do this with a relay that is yours: anything in between sees your key.</li>
-  </ul>
-  <div class="note warn"><strong>The key lives in this browser.</strong> A static page has no server to keep a secret on and no way to check a password before handing out its own source, so there is no access lock and there is no point pretending otherwise. The key is stored in this browser&rsquo;s storage on this device, never sent anywhere by this page, and never put in the repository. If the machine is shared, use the server version instead.</div>
-</div></section>
-
-<section><div class="wrap">
-  <h2>The server version</h2>
-  <p class="sub">Same app, FastAPI and ffmpeg behind it. Use it for a paid key, for H.264 output, or for a shared address.</p>
-  <h3>On GitHub, in a Codespace</h3>
-  <p>GitHub&rsquo;s own container host runs it unchanged, with an HTTPS address and nothing installed locally.</p>
-  <div class="cta" style="margin:14px 0"><a class="btn ghost" href="https://github.com/codespaces/new?repo=argaurshar/Images-to-video-with-ref-video&ref=claude/app-md-review-enhance-its81i">Open in a Codespace</a></div>
-  <ul>
-    <li>The forwarded port is private to you by default, which is the right default for something holding a paid key. To share a link, open the Ports panel, right-click port 8000, choose Port Visibility, then Public.</li>
-    <li>A personal GitHub Free account includes about 120 core-hours a month plus 15 GB of storage. A codespace stops after 30 minutes idle; storage persists and batches resume where they stopped, so nothing is paid for twice.</li>
-    <li>Storage keeps billing while a codespace exists, even stopped. Delete it when a project is finished.</li>
-  </ul>
-  <h3>Always on</h3>
-  <p>For an address that is up without anyone opening anything, deploy the same repo to a container host. On Render, sign in with GitHub, choose <b>New</b>, then <b>Blueprint</b>, connect the repository and pick the branch.</p>
-  <div class="note warn"><strong>Do not use the one-click Deploy to Render button for this repo.</strong> It is known to fail with &ldquo;No render.yaml file found on main branch&rdquo; when a repository&rsquo;s default branch is not main, which is the case here. Use the dashboard flow, where the branch is a dropdown.</div>
-  <div class="note warn"><strong>Do not put a paid API key on a free plan.</strong> A free instance sleeps after about fifteen idle minutes, and the server does its work in background threads rather than holding the request open. A long batch only survives while a tab is polling it, and a free plan has no persistent disk, so clips you already paid for are lost when it suspends.</div>
-  <table>
-    <tr><th></th><th>Free</th><th>Starter plus disk</th></tr>
-    <tr><td>Cost</td><td>$0, no card</td><td>about $9.50 a month</td></tr>
-    <tr><td>Work survives a restart</td><td>No</td><td>Yes</td></tr>
-    <tr><td>Sleeps when idle</td><td>Yes</td><td>No</td></tr>
-    <tr><td>Safe with a paid key</td><td><b>No</b></td><td>Yes</td></tr>
-  </table>
-  <p>Railway works out around $5 a month on the Hobby plan. The repo ships a <code>railway.json</code> describing the build; the difference is that Railway does not create the disk for you, so after the first deploy add a Volume mounted at <code>/data</code> and set <code>ARCHVIZ_DATA_DIR=/data</code>.</p>
-  <p class="muted">On either host, 512 MB of RAM is tight for ffmpeg and OpenCV holding 1080p frames. If a render dies out of memory, raise the instance size rather than shortening the film.</p>
-  <h3>On your own machine</h3>
-  <pre><code>git clone https://github.com/argaurshar/Images-to-video-with-ref-video
-cd Images-to-video-with-ref-video
-pip install -r requirements.txt
-./run.sh            # http://127.0.0.1:8000</code></pre>
-  <p>Or with Docker:</p>
-  <pre><code>docker build -t archviz .
-docker run -p 8000:8000 -v archviz-data:/data archviz</code></pre>
-  <p><b>Run a single worker.</b> The batch job registry lives in the process, so a second worker would not see a running job and could start a duplicate batch and pay twice.</p>
-  <figure><img src="img/settings.png" alt="The settings panel with provider, API key, and per-image and per-clip costs">
-    <figcaption>On the server version the provider, the key and your actual per-image and per-clip costs are set in the app, so the budget gate matches your real contract. The key is stored on your own instance and only ever read back as a masked hint.</figcaption></figure>
-  <div class="note"><strong>Start on the demo generator either way.</strong> It costs nothing and still runs the planner, the fidelity audit, the QC suite and the render for real, so you can rehearse a whole project before spending anything.</div>
+  <p>So the tool does not pretend. Paste a key under Settings, press <b>Test the key</b>, and it says plainly whether calls from your browser get through. If they do, real generation works from the page with nothing else running. If they do not, nothing is charged, and you can point the base URL at a relay you control that adds the headers. Only use a relay that is yours: anything in between sees your key.</p>
+  <div class="note warn"><strong>The key lives in this browser.</strong> A static page has no server to keep a secret on, so the key is stored in this browser&rsquo;s storage on this device, never sent anywhere by this page, and never put in the repository. On a shared machine, do not paste one.</div>
+  <p class="muted">The repository also carries the original FastAPI and ffmpeg version of the same engine, for anyone who wants server-side key handling or guaranteed H.264 output. It is not needed to use this tool, and nothing on this site depends on it. The <a href="https://github.com/argaurshar/Images-to-video-with-ref-video">README</a> covers it.</p>
 </div></section>
 
 <footer><div class="wrap">

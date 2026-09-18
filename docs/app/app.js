@@ -223,8 +223,9 @@ async function openSettings() {
       ? `This browser writes video as <b>${esc(rec.info.label)}</b>, measured by recording a fraction of a second and reading the bytes back, so films and demo clips come out as <b>.${esc(rec.info.container)}</b>.` +
         (rec.info.interoperable ? "" : " That plays in any browser but not in QuickTime, PowerPoint or most editors: this browser has no H.264 encoder. Chrome, Edge and Safari on a normal desktop usually do.")
       : "This browser cannot record video at all, so the demo generator and the final render will not work here."}</p>
-    <div class="row" style="margin-top:12px"><button class="btn" id="set_save">Save</button><button class="btn secondary" id="set_test">Test the key</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn" id="set_save">Save</button><button class="btn secondary" id="set_test">Test the key</button><button class="btn secondary" id="set_check">Check this browser</button></div>
     <div id="set_result" class="muted" style="margin-top:10px"></div>`);
+  el("set_check").onclick = () => selfCheck();
   el("set_provider").onchange = () => { el("set_warn").style.display = el("set_provider").value === "freepik" ? "" : "none"; };
   el("set_save").onclick = () => busy(async () => {
     const body = { provider: el("set_provider").value, image_cost: +el("set_ic").value, video_cost: +el("set_vc").value,
@@ -240,6 +241,90 @@ async function openSettings() {
   });
 }
 window.openSettings = openSettings;
+
+/* An eight-pixel greyscale JPEG. The check decodes this for real rather than
+   asking the browser whether it believes it can read JPEGs. */
+const TINY_JPEG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAFA3PEY8MlBGQUZaVVBfeMiCeG5uePWvuZHI////////////////////////////////////////////////////wAALCAAIAAgBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AP//Z";
+
+/** What this browser can actually do, one line at a time. Everything in this
+    tool runs in the page, so when something does not work it is this list that
+    says why. The report copies as plain text so it can be sent on as it is. */
+async function selfCheck() {
+  const rows = [];
+  const add = (name, ok, detail) => rows.push([name, ok, detail]);
+
+  add("JavaScript modules", true, "running: the tool loaded its own code");
+
+  let idb = false, idbWhy = "";
+  try {
+    await new Promise((res, rej) => {
+      const r = indexedDB.open("archviz-selfcheck", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("t");
+      r.onsuccess = () => { r.result.close(); try { indexedDB.deleteDatabase("archviz-selfcheck"); } catch { } res(); };
+      r.onerror = () => rej(r.error || new Error("refused"));
+      r.onblocked = () => rej(new Error("blocked by another tab"));
+    });
+    idb = true;
+  } catch (e) { idbWhy = e.message || String(e); }
+  const q = await quota();
+  add("Project storage", idb, idb
+    ? (q ? `${(q.free / 1e9).toFixed(1)} GB free of ${(q.quota / 1e9).toFixed(1)} GB` : "available")
+    : `IndexedDB will not open (${idbWhy}). Private browsing and blocked site data both do this, and nothing can be saved without it.`);
+
+  const persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted().catch(() => false) : false;
+  add("Storage kept between visits", !!(navigator.storage && navigator.storage.persist), navigator.storage && navigator.storage.persist
+    ? (persisted ? "granted: the browser will not evict your projects on its own" : "not granted yet; it is asked for when you create a project")
+    : "this browser does not offer it, so a long-idle project can be evicted. Export anything you care about.");
+
+  const ctx = document.createElement("canvas").getContext("2d");
+  add("Canvas drawing", !!ctx, ctx ? "2D context available" : "no 2D context: nothing can be composed, measured or rendered");
+
+  let jpeg = false, jpegWhy = "";
+  try {
+    const bm = await createImageBitmap(await (await fetch(TINY_JPEG)).blob());
+    jpeg = bm.width === 8 && bm.height === 8;
+    if (bm.close) bm.close();
+  } catch (e) { jpegWhy = e.message || String(e); }
+  add("JPEG decoding", jpeg, jpeg ? "a JPEG was decoded here just now, so photo upload works" : "failed: " + jpegWhy);
+
+  const inp = document.createElement("input"); inp.type = "file";
+  add("Choosing files", !!(window.File && window.FileList && "files" in inp && inp.type === "file"),
+    "multiple: " + ("multiple" in inp) + " · camera: " + ("capture" in inp));
+
+  const rec = await probe().catch(() => ({}));
+  add("Video recording", !!rec.info, rec.info
+    ? `${rec.info.label} written into .${rec.info.container}` + (rec.info.interoperable ? "" : ". That plays in browsers but not in QuickTime, PowerPoint or most editors: no H.264 encoder here.")
+    : "this browser cannot record video, so demo clips and the final film will not work. Chrome, Edge and Safari can.");
+
+  const AC = window.AudioContext || window.webkitAudioContext;
+  add("Sound", typeof AC === "function", typeof AC === "function" ? "WebAudio available for the ambience bed" : "no WebAudio: films come out silent");
+
+  add("Reading a project ZIP", typeof DecompressionStream === "function",
+    typeof DecompressionStream === "function" ? "import works" : "import of an exported project will not work in this browser; export still does");
+
+  add("Screen stays awake while rendering", !!navigator.wakeLock,
+    navigator.wakeLock ? "the screen is held on during a render" : "not offered: keep the screen on yourself, or a long render is thrown away");
+
+  const ok = rows.filter(r => r[1]).length;
+  const text = [
+    `ArchViz Cinematic Engine — browser check (${ok}/${rows.length} clear)`,
+    `${location.href}`,
+    `${navigator.userAgent}`,
+    `screen ${screen.width}x${screen.height} @${devicePixelRatio}x · window ${innerWidth}x${innerHeight}`,
+    "", ...rows.map(r => `${r[1] ? "ok  " : "NO  "}${r[0]}: ${r[2]}`),
+  ].join("\n");
+
+  modal(`<h3>This browser</h3>
+    <p class="muted">${ok === rows.length ? "Everything this tool needs is here." : "The lines marked in red are what will not work here."} Copy the report if you need to send it on.</p>
+    <div class="kv check">${rows.map(r => `<div><span class="tag ${r[1] ? "ok" : "bad"}">${r[1] ? "ok" : "no"}</span> ${esc(r[0])}</div><div>${esc(r[2])}</div>`).join("")}</div>
+    <p class="muted" style="margin-top:12px">${esc(navigator.userAgent)}<br>screen ${screen.width}×${screen.height} at ${devicePixelRatio}× · window ${innerWidth}×${innerHeight}</p>
+    <div class="row" style="margin-top:10px"><button class="btn secondary" id="copycheck">Copy the report</button></div>`);
+  el("copycheck").onclick = async () => {
+    try { await navigator.clipboard.writeText(text); toast("report copied"); }
+    catch { modal(`<h3>This browser</h3><textarea rows="18" style="width:100%">${esc(text)}</textarea>`); }
+  };
+}
+window.selfCheck = selfCheck;
 
 // ------------------------------------------------------------------- frame
 async function init() {
@@ -257,6 +342,94 @@ async function renderAll() {
 }
 async function open(id, stage) { P = await api(`/api/projects/${id}`); view = stage || (P.stage === "delivered" ? "render" : (P.stage || "intake")); renderChrome(); await renderAll(); }
 
+/* Two renders drawn in this tab, plus the brief that goes with them, so the
+   tool can be taken end to end before anyone goes looking for their own files.
+   They are plain shapes and the page says so: nothing is downloaded, nothing is
+   pretended, and they go in through exactly the upload path a photo does. */
+function sampleJPEG(w, h, paint) {
+  return new Promise(res => {
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    paint(c.getContext("2d"), w, h);
+    c.toBlob(b => res(b), "image/jpeg", 0.92);
+  });
+}
+async function sampleRenders() {
+  const ext = await sampleJPEG(1600, 900, (g, w, h) => {
+    const sky = g.createLinearGradient(0, 0, 0, h * 0.62);
+    sky.addColorStop(0, "#6f9cc6"); sky.addColorStop(1, "#d6e3ee");
+    g.fillStyle = sky; g.fillRect(0, 0, w, h * 0.62);
+    g.fillStyle = "#8b9a63"; g.fillRect(0, h * 0.62, w, h * 0.38);          // lawn
+    g.fillStyle = "#6e6e6e"; g.fillRect(0, h * 0.88, w, h * 0.12);          // road
+    g.fillStyle = "#c9c1b2"; g.fillRect(w * 0.22, h * 0.30, w * 0.46, h * 0.40); // mass
+    g.fillStyle = "#9a6b3f"; g.fillRect(w * 0.22, h * 0.30, w * 0.46, h * 0.15); // timber band
+    g.fillStyle = "#2c3c4a";
+    for (let i = 0; i < 4; i++) {                                           // four windows a level
+      g.fillRect(w * (0.26 + i * 0.105), h * 0.34, w * 0.07, h * 0.08);
+      g.fillRect(w * (0.26 + i * 0.105), h * 0.50, w * 0.07, h * 0.12);
+    }
+    g.fillStyle = "#3d3d3d"; g.fillRect(w * 0.30, h * 0.58, w * 0.20, h * 0.015); // canopy
+    g.fillStyle = "#8d8378"; g.fillRect(0, h * 0.70, w, h * 0.02);          // retaining wall
+    for (const [x, r] of [[0.10, 0.10], [0.86, 0.13]]) {                    // two oaks
+      g.fillStyle = "#5a4630"; g.fillRect(w * x - 6, h * 0.52, 12, h * 0.20);
+      g.fillStyle = "#4f6b3a"; g.beginPath(); g.arc(w * x, h * 0.48, h * r, 0, 7); g.fill();
+    }
+  });
+  const int = await sampleJPEG(1600, 900, (g, w, h) => {
+    g.fillStyle = "#efe9df"; g.fillRect(0, 0, w, h);                        // walls
+    g.fillStyle = "#e6e0d5"; g.fillRect(0, 0, w, h * 0.14);                 // ceiling
+    g.fillStyle = "#b98f5e"; g.fillRect(0, h * 0.72, w, h * 0.28); // oak floor
+    g.fillStyle = "#6e8a4e"; g.fillRect(w * 0.52, h * 0.40, w * 0.44, h * 0.32); // garden through the glass
+    g.fillStyle = "#3a5a2c"; g.fillRect(w * 0.52, h * 0.62, w * 0.44, h * 0.10);
+    g.strokeStyle = "#39414a"; g.lineWidth = Math.max(2, w * 0.005);        // mullions
+    for (let i = 0; i <= 3; i++) { const x = w * (0.52 + i * 0.1467); g.beginPath(); g.moveTo(x, h * 0.40); g.lineTo(x, h * 0.72); g.stroke(); }
+    g.beginPath(); g.moveTo(w * 0.52, h * 0.40); g.lineTo(w * 0.96, h * 0.40); g.stroke();
+    g.fillStyle = "#d9d2c6"; g.fillRect(w * 0.04, h * 0.18, w * 0.30, h * 0.54); // joinery
+    g.fillStyle = "#9a9285"; g.fillRect(w * 0.30, h * 0.56, w * 0.26, h * 0.06); // island
+    g.fillStyle = "#7b7367"; g.fillRect(w * 0.30, h * 0.62, w * 0.26, h * 0.10);
+    g.fillStyle = "#2f2f2f";
+    for (const x of [0.36, 0.48]) { g.fillRect(w * x, h * 0.20, 2, h * 0.28); g.beginPath(); g.arc(w * x + 1, h * 0.49, h * 0.018, 0, 7); g.fill(); }
+    const pool = g.createLinearGradient(w * 0.52, 0, w * 0.20, 0);          // light off the glass
+    pool.addColorStop(0, "rgba(255,238,200,.55)"); pool.addColorStop(1, "rgba(255,238,200,0)");
+    g.fillStyle = pool; g.fillRect(w * 0.20, h * 0.72, w * 0.36, h * 0.28);
+    g.fillStyle = "#c2b6a4"; g.fillRect(w * 0.12, h * 0.80, w * 0.34, h * 0.14); // wool rug
+  });
+  return [new File([ext], "sample-exterior.jpg", { type: "image/jpeg" }),
+          new File([int], "sample-interior.jpg", { type: "image/jpeg" })];
+}
+
+/** A whole project, one tap: the two renders above, their finishes named, and
+    the brief filled in ready to save. Everything after that is the real thing. */
+async function startSample() {
+  await persist();
+  P = await api("/api/projects", { body: { name: "Sample: Willow Glen house" } });
+  const fd = new FormData();
+  for (const f of await sampleRenders()) fd.append("files", f);
+  await api(`/api/projects/${P.id}/hubs`, { body: fd });
+  P = await api(`/api/projects/${P.id}`);
+  const say = {
+    exterior: { label: "street elevation", camera_faces: "N",
+      materials: "board-formed concrete base, spotted gum battens, zinc standing seam roof",
+      elements: "two levels, four windows per level, entry canopy, retaining wall along the front, road, two oaks" },
+    interior: { label: "kitchen and living",
+      materials: "oak floor and joinery, honed limestone benchtop, wool rug, black steel window frames",
+      elements: "one window wall of four bays, island with two pendants, full-height joinery left" },
+  };
+  for (const h of P.hubs) {
+    const s = say[h.cls]; if (!s) continue;
+    for (const [k, v] of Object.entries(s)) await api(`/api/projects/${P.id}/hubs/${h.id}`, { method: "PATCH", body: { [k]: v } });
+  }
+  P = await api(`/api/projects/${P.id}`);
+  // held for the intake form rather than saved, so the first real decision is
+  // still the designer's
+  pendingIntake = {
+    location: "Willow Glen, San Jose, California", project_name: "Willow Glen house", practice_name: "",
+    seasons: ["spring", "summer", "autumn", "winter"], time_arc: "full_day", mood: "serene",
+    design_intents: ["the way afternoon light enters the living room", "the entry canopy against the street", "the deck meeting the garden"],
+  };
+  view = "intake"; renderChrome(); await renderAll();
+  toast("two sample renders drawn and named — press Save intake to carry on");
+}
+
 // -------------------------------------------------------------------- home
 async function rHome() {
   const list = await api("/api/projects");
@@ -272,6 +445,8 @@ async function rHome() {
         <p class="lead">One project per film: one building, its renders, one brief.</p>
         <label class="f wide">project name<input id="newname" placeholder="e.g. Willow Glen ADU"></label>
         <div style="margin-top:10px"><button class="btn" id="newbtn">Create project</button></div>
+        <p class="muted" style="margin-top:14px">Or see it work first: this draws two sample renders in this tab, names their finishes and fills in the brief. Nothing is downloaded and nothing is charged.</p>
+        <div><button class="btn secondary" id="samplebtn">Start a sample project</button></div>
       </div>
       <div class="card"><h3 style="margin-top:0">Bring a project in</h3>
         <p class="muted">Projects live in this browser only. An export is a ZIP with everything in it; import it here on any machine.</p>
@@ -279,6 +454,7 @@ async function rHome() {
       </div>
       <div class="card"><h3 style="margin-top:0">How it works</h3>
         <p class="muted">Upload the renders, say where the building is and what you want noticed, approve a shot plan, and the engine generates every frame from those renders, measures what comes back and cuts it together. Out of the box it uses a demo generator that costs nothing, so a whole project can be rehearsed before any money is involved. Settings switches to a real API.${q ? ` About ${(q.free / 1e9).toFixed(1)} GB of browser storage is free.` : ""}</p>
+        <div class="row" style="margin-top:10px"><button class="btn small secondary" id="browsercheck">Check this browser</button></div>
       </div>
     </div>
     <div>
@@ -294,6 +470,8 @@ async function rHome() {
     P = await api("/api/projects", { body: { name } }); view = "intake"; renderChrome(); await renderAll();
   });
   el("newbtn").onclick = create;
+  el("samplebtn").onclick = () => busy(startSample, "drawing two sample renders…");
+  el("browsercheck").onclick = () => selfCheck();
   el("newname").onkeydown = e => { if (e.key === "Enter") create(); };
   el("importfile").onchange = e => busy(async () => {
     const f = e.target.files[0]; if (!f) return;
@@ -412,15 +590,19 @@ async function rIntake() {
         <p class="muted">One to eight renders of one project: exterior angles, interior rooms, or both. On a phone, <b>Choose photos</b> opens your gallery. <b>JPEG</b>, PNG and WebP are all read directly. Name the finishes on each; the prompts use your words, never invented ones. State which way the camera faces on exteriors so the sun comes from the right side. Tap a render to see it full size.</p>
         <div class="dropzone" id="drop">
           <div class="pickers">
-            <label class="btn" for="hubfiles">Choose photos</label>
-            <label class="btn secondary" for="hubcamera">Take a photo</label>
+            <button type="button" class="btn" id="pick_library">Choose photos</button>
+            <button type="button" class="btn secondary" id="pick_camera">Take a photo</button>
           </div>
           <p class="muted droptip">or drop files here</p>
           <p class="muted formats">JPEG, PNG and WebP. HEIC from an iPhone works in Safari.</p>
-          <!-- No capture attribute on the first one: that is what makes a phone
-               offer the photo library. The second forces the camera. -->
-          <input type="file" id="hubfiles" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" hidden>
-          <input type="file" id="hubcamera" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" hidden>
+          <!-- The inputs are moved off screen rather than given display:none.
+               Safari will not open a file picker for an input that is not
+               rendered, whether it is clicked through a label or by script, so
+               hiding one that way is how an upload button silently does
+               nothing. No capture attribute on the first: that is what makes a
+               phone offer the photo library. The second forces the camera. -->
+          <input type="file" id="hubfiles" class="visually-hidden" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" tabindex="-1" aria-hidden="true">
+          <input type="file" id="hubcamera" class="visually-hidden" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" tabindex="-1" aria-hidden="true">
         </div>
         <div class="grid" style="margin-top:14px">${hubs || ""}</div>
       </div>
@@ -487,8 +669,21 @@ async function rIntake() {
     // so it is said rather than done quietly
     if (r.notes && r.notes.length) toast(r.notes[0]);
   }, "reading the photos…");
-  el("hubfiles").onchange = e => { upload(e.target.files); e.target.value = ""; };
-  el("hubcamera").onchange = e => { upload(e.target.files); e.target.value = ""; };
+  // The button opens the input, inside the click that the browser counts as a
+  // user gesture. Taking a copy of the FileList before clearing the input
+  // matters: the list is live and belongs to the input, so clearing it first
+  // would hand the upload an empty list.
+  const wire = (btnId, inputId) => {
+    const btn = el(btnId), input = el(inputId);
+    btn.onclick = () => input.click();
+    input.onchange = () => {
+      const picked = [...input.files];
+      input.value = "";
+      upload(picked);
+    };
+  };
+  wire("pick_library", "hubfiles");
+  wire("pick_camera", "hubcamera");
   drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); }; drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); upload(e.dataTransfer.files); };
   el("main").querySelectorAll("[data-view]").forEach(img => img.onclick = () => { const h = hub(img.dataset.view); lightbox(h.path, `${h.label || h.filename} · ${h.width}×${h.height}`); });
@@ -813,4 +1008,11 @@ async function rRender() {
   const ex = el("exportproj"); if (ex) ex.onclick = (e) => { e.preventDefault(); busy(async () => { const r = await api(`/api/projects/${P.id}/export`); download(r.blob, r.filename); }, "packing the project…"); };
 }
 
-init();
+/* A blank page is indistinguishable from a broken app, so a boot that fails
+   says so on screen. Setting the flag also stands the watchdog down. */
+init().then(() => { window.__booted = true; }).catch(e => {
+  window.__booted = true;
+  const msg = (e && e.message) || String(e);
+  if (window.__fatal) window.__fatal("The tool could not start.", msg + " — open the browser check for what this browser is missing.");
+  else throw e;
+});

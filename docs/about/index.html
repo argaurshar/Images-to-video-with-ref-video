@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArchViz Cinematic Engine</title>
+<meta name="description" content="Turns an architect's or interior designer's renders into a short cinematic film across seasons and times of day, without ever redesigning the building.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><circle cx=%2216%22 cy=%2216%22 r=%2210%22 fill=%22%23d9b46a%22/></svg>">
+</head>
+<body>
+<header class="nav"><div class="wrap">
+  <a class="brand" href="index.html"><span class="dot"></span> ArchViz Cinematic Engine</a>
+  <nav><a href="index.html" aria-current="page">Overview</a><a href="how-it-works.html">How it works</a><a href="running.html">Run it</a><a href="quality.html">Quality control</a><a href="limits.html">Limits</a><a class="navcta" href="../">Open the tool &rarr;</a></nav>
+</div></header>
+
+<div class="hero"><div class="wrap">
+  <h1>Your renders, as a film.<br>Never as a redesign.</h1>
+  <p class="lede">Turns an architect's or interior designer's renders into a short cinematic film across seasons, times of day and moods. The building you drew is the one that appears.</p>
+  <div class="cta">
+    <a class="btn" href="../">Open the tool</a>
+    <a class="btn ghost" href="how-it-works.html">See how it works</a>
+    <a class="btn ghost" href="https://github.com/argaurshar/Images-to-video-with-ref-video">Source</a>
+  </div>
+  <p class="muted" style="margin-top:14px">Runs in the browser. Nothing to install, no account, no server, and nothing you upload leaves your machine. <b>Start a sample project</b> on the first screen draws two renders in the tab and fills in the brief, so you can see the whole thing work before finding your own files.</p>
+</div></div>
+
+<section><div class="wrap">
+  <h2>The problem it exists for</h2>
+  <p class="sub">A practice sells design intent to homeowners, contractors, planning officers and awards juries.</p>
+  <p>Image models will happily invent a staircase, move a road or rearrange a kitchen while changing the season. That is fine for a mood board and fatal for a client presentation. This engine treats your uploaded renders as the source of truth and changes only light, weather, season, occupancy and framing.</p>
+  <div class="grid" style="margin-top:22px">
+    <div class="card"><h3>The renders are sacred</h3><p>No added floors, moved walls, swapped finishes or rearranged furniture. Exteriors and interiors each carry their own protected-element list.</p></div>
+    <div class="card"><h3>Hub and spoke, never a chain</h3><p>Every generated image references an original upload. Nothing is ever generated from a previous generation, because drift compounds at every hop.</p></div>
+    <div class="card"><h3>Measured, not eyeballed</h3><p>Every clip is scored on eight metrics before you see it. A failure is named with its cause, not hidden behind a nice thumbnail.</p></div>
+    <div class="card"><h3>A visualisation, not a study</h3><p>Sun direction is approximated from a stated compass heading. Every deliverable carries a disclaimer and an optional project-stage stamp.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Why drift matters</h2>
+  <p class="sub">The single rule that separates a usable film from an expensive mood board.</p>
+  <svg viewBox="0 0 720 260" style="width:100%;max-width:720px;border:1px solid var(--line);border-radius:10px;background:#0c0e11" role="img" aria-label="Diagram contrasting a chain of generations, which drifts, with a hub and spoke arrangement, which does not">
+    <defs><marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0 0l6 3-6 3z" fill="#5a4444"/></marker></defs>
+    <g font-family="system-ui,sans-serif">
+      <text x="18" y="26" fill="#eb5757" font-size="13" font-weight="600">Chained: each image is made from the last</text>
+      <g font-size="11">
+        <rect x="18" y="40" width="92" height="38" rx="6" fill="#171a1f" stroke="#6fcf97"/><text x="34" y="63" fill="#e8e9eb">your render</text>
+        <rect x="142" y="40" width="82" height="38" rx="6" fill="#171a1f" stroke="#3a2b2b"/><text x="167" y="63" fill="#9aa3ad">spring</text>
+        <rect x="256" y="40" width="82" height="38" rx="6" fill="#171a1f" stroke="#4a2f2f"/><text x="277" y="63" fill="#9aa3ad">summer</text>
+        <rect x="370" y="40" width="82" height="38" rx="6" fill="#171a1f" stroke="#5f3333"/><text x="392" y="63" fill="#9aa3ad">autumn</text>
+        <rect x="484" y="34" width="218" height="50" rx="6" fill="#1d1416" stroke="#eb5757"/>
+        <text x="500" y="54" fill="#eb5757">winter, plus a staircase</text><text x="500" y="70" fill="#eb5757">you never drew</text>
+        <path d="M112 59h26M226 59h26M340 59h26M454 59h26" stroke="#5a4444" stroke-width="1.5" marker-end="url(#ar)"/>
+      </g>
+      <line x1="18" y1="104" x2="702" y2="104" stroke="#262b33"/>
+      <text x="18" y="132" fill="#6fcf97" font-size="13" font-weight="600">Hub and spoke: every image is made from your render</text>
+      <g font-size="11">
+        <rect x="18" y="168" width="92" height="46" rx="6" fill="#171a1f" stroke="#6fcf97"/><text x="34" y="196" fill="#e8e9eb">your render</text>
+        <path d="M112 191L206 158M112 191L206 180M112 191L206 202M112 191L206 224" stroke="#3f5a48" stroke-width="1.4"/>
+        <rect x="206" y="146" width="92" height="24" rx="6" fill="#171a1f" stroke="#262b33"/><text x="232" y="162" fill="#9aa3ad">spring</text>
+        <rect x="206" y="168" width="92" height="24" rx="6" fill="#171a1f" stroke="#262b33"/><text x="227" y="184" fill="#9aa3ad">summer</text>
+        <rect x="206" y="190" width="92" height="24" rx="6" fill="#171a1f" stroke="#262b33"/><text x="230" y="206" fill="#9aa3ad">autumn</text>
+        <rect x="206" y="212" width="92" height="24" rx="6" fill="#171a1f" stroke="#262b33"/><text x="234" y="228" fill="#9aa3ad">winter</text>
+        <text x="322" y="185" fill="#6fcf97">every one traced back</text>
+        <text x="322" y="201" fill="#6fcf97">to what you drew</text>
+      </g>
+    </g>
+  </svg>
+  <p style="margin-top:18px">By the third hop a chained pipeline has invented a staircase and re-routed the road. The engine refuses to work that way: if a shot needs an angle no original covers, it generates from the nearest original and tells you the risk in writing.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>What you get at the end</h2>
+  <div class="grid">
+    <div class="card"><h3>The film</h3><p>Hard cuts at 30 fps, title cards, a stage stamp and disclaimer, an ambience bed, plus crop-only variants for other aspect ratios. The server version normalises the bed to &minus;16 LUFS with ffmpeg; the browser reports an RMS approximation and says so.</p></div>
+    <div class="card"><h3>The stills pack</h3><p>Every approved still at full resolution with sidecar metadata, because a practice reuses them in decks, reports and planning packs.</p></div>
+    <div class="card"><h3>The project record</h3><p>Every hub render, prompt, generation id, audit deviation, QC table, approval and the total spend. The file copy for when a client asks in six months why the film showed the deck in rain.</p></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <p><a href="https://github.com/argaurshar/Images-to-video-with-ref-video">Source on GitHub</a> · <a href="https://github.com/argaurshar/Images-to-video-with-ref-video/blob/claude/app-md-review-enhance-its81i/SPEC.md">The full specification</a></p>
+  <p>Screenshots show the app running on its demo generator with synthetic test renders, so the buildings are placeholder shapes. The interface, the measurements and the numbers are real.</p>
+</div></footer>
+</body>
+</html>

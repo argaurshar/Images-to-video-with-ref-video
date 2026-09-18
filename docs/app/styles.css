@@ -218,3 +218,25 @@ label.f.check { flex-direction:row; align-items:center; gap:8px; min-width:0; }
 @supports (padding: max(0px)) {
   .top, .steps, .next, .main { padding-left:max(14px, env(safe-area-inset-left)); padding-right:max(14px, env(safe-area-inset-right)); }
 }
+
+/* Off screen, but still rendered. An input with display:none cannot be opened
+   by a click in Safari, which is how a hidden file input becomes an upload
+   button that silently does nothing. */
+.visually-hidden {
+  position:absolute; width:1px; height:1px; margin:-1px; padding:0; border:0;
+  clip:rect(0 0 0 0); clip-path:inset(50%); overflow:hidden; white-space:nowrap;
+}
+
+/* The failure banner. A page whose script died shows nothing at all, and a
+   blank page reads as a broken tool rather than a broken browser. */
+.fatal { margin:12px 16px; padding:14px 16px; border-radius:10px; border:1px solid #6b2b2b;
+  background:#2a1616; color:#f3d9d9; flex-wrap:wrap; gap:8px 14px; align-items:center; }
+/* hidden wins: a class that sets display would otherwise beat the attribute and
+   leave an empty red bar across a page where nothing is wrong */
+.fatal[hidden] { display:none; }
+.fatal:not([hidden]) { display:flex; }
+.fatal b { font-size:15px; }
+.fatal span { opacity:.85; font-size:13px; word-break:break-word; }
+.fatal button { margin-left:auto; min-height:38px; padding:8px 14px; border-radius:8px; cursor:pointer;
+  border:1px solid #8a4a4a; background:#3a1e1e; color:#f3d9d9; font:inherit; }
+.kv.check .tag { margin-right:6px; }

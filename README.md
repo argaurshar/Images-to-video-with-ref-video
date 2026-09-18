@@ -21,7 +21,7 @@ than tried a third time.
 
 ## Run it in your browser, on GitHub Pages
 
-**https://argaurshar.github.io/Images-to-video-with-ref-video/app/**
+**https://argaurshar.github.io/Images-to-video-with-ref-video/**
 
 That link is the working app, not a description of one. The whole engine is the
 page: the planner, the image analysis, the fidelity audit, the clip
@@ -30,8 +30,9 @@ no server, and nothing you upload leaves your machine. It has no dependencies
 at all: Canny, connected components, the frame aligner, the ZIP writer and the
 video encoder are all in `docs/app/engine/`, so there is no CDN to go down.
 
-A tour of the tool, with screenshots, is at
-**https://argaurshar.github.io/Images-to-video-with-ref-video/**
+That address is the tool itself, not a page about it. A tour with
+screenshots is one link away, at
+**https://argaurshar.github.io/Images-to-video-with-ref-video/about/**
 
 Out of the box it uses a **demo generator** that runs in the tab, costs nothing
 and still exercises every gate, so a whole project can be rehearsed end to end
@@ -209,12 +210,13 @@ deploy you add a **Volume** mounted at `/data`, and set `ARCHVIZ_DATA_DIR=/data`
 in the Variables tab. Railway's free trial is not enough for this app, because
 its volume cap is far below what renders need.
 
-### Why it cannot run on GitHub Pages
+### Why the server version cannot run on GitHub Pages
 
-Pages serves static files. This is a Python server running ffmpeg and OpenCV
-with background jobs alive for tens of minutes, so it needs a container host.
-The page at https://argaurshar.github.io/Images-to-video-with-ref-video/
-documents the app; it is not the app.
+Pages serves static files, and this section describes a Python server running
+ffmpeg and OpenCV with background jobs alive for tens of minutes, so that one
+needs a container host. The browser version has no such problem: it is already
+live on Pages at the link at the top of this file, and it is the whole engine,
+not a description of it. Nothing on this page is needed to use it.
 
 ### On your own machine instead
 
