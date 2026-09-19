@@ -240,3 +240,4 @@ label.f.check { flex-direction:row; align-items:center; gap:8px; min-width:0; }
 .fatal button { margin-left:auto; min-height:38px; padding:8px 14px; border-radius:8px; cursor:pointer;
   border:1px solid #8a4a4a; background:#3a1e1e; color:#f3d9d9; font:inherit; }
 .kv.check .tag { margin-right:6px; }
+.fatal .dismiss { margin-left:0; min-width:38px; padding:8px 12px; font-size:18px; line-height:1; }

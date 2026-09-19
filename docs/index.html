@@ -21,30 +21,40 @@
      screen, before the module has had a chance to run. -->
 <div id="fatal" class="fatal" hidden></div>
 <script>
+  // Two separate facts. __booted says the module's code ran at all, which is
+  // what the watchdog below is asking about. __ready says the first screen
+  // finished drawing, which can take a while on a phone and is not a failure.
   window.__booted = false;
+  window.__ready = false;
   window.__fatal = function (headline, detail) {
     var n = document.getElementById("fatal");
     if (!n || n.dataset.shown) return;
     n.dataset.shown = "1";
     n.hidden = false;
-    n.innerHTML = "<b></b><span></span><button type=\"button\">Check this browser</button>";
+    n.innerHTML = "<b></b><span></span><button type=\"button\" class=\"check\">Check this browser</button><button type=\"button\" class=\"dismiss\" aria-label=\"Dismiss\">\u00d7</button>";
     n.querySelector("b").textContent = headline;
     n.querySelector("span").textContent = detail || "";
-    n.querySelector("button").onclick = function () {
+    n.querySelector(".check").onclick = function () {
       if (window.selfCheck) return window.selfCheck();
       alert(navigator.userAgent + "\n\nmodules: " + ("noModule" in HTMLScriptElement.prototype) +
             "\nindexedDB: " + !!window.indexedDB + "\ncanvas: " + !!document.createElement("canvas").getContext("2d") +
             "\nMediaRecorder: " + !!window.MediaRecorder);
     };
+    // Dismissable, and it un-latches: one stray error should not leave a red
+    // bar sitting over a tool that is working.
+    n.querySelector(".dismiss").onclick = function () { n.hidden = true; delete n.dataset.shown; };
   };
   addEventListener("error", function (e) {
-    window.__fatal("Something in this page failed to load.", (e.message || "script error") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : ""));
+    window.__fatal(window.__ready ? "Something on this page just failed." : "Something in this page failed to load.",
+      (e.message || "script error") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : ""));
   });
   addEventListener("unhandledrejection", function (e) {
-    var r = e.reason; window.__fatal("Something in this page failed.", (r && (r.message || r.detail)) || String(r));
+    var r = e.reason;
+    window.__fatal(window.__ready ? "Something on this page just failed." : "Something in this page failed.",
+      (r && (r.message || r.detail)) || String(r));
   });
-  // Nothing has painted after eight seconds means the module never ran: an old
-  // browser, a blocked script, or a half-finished deploy. Say which.
+  // The module never ran: an old browser, a blocked script, or a half-finished
+  // deploy. Say which.
   setTimeout(function () {
     if (window.__booted) return;
     window.__fatal("The tool did not start in this browser.",
@@ -52,6 +62,13 @@
         ? "The page loaded but its code never ran. Reload once; if it keeps happening, open it in Chrome, Edge or Safari, and check that an extension is not blocking scripts."
         : "This browser is too old to run JavaScript modules. Use a current Chrome, Edge, Firefox or Safari.");
   }, 8000);
+  // The code ran but the first screen never arrived, which is what a blocked
+  // IndexedDB looks like: it neither succeeds nor fails, it just never answers.
+  setTimeout(function () {
+    if (window.__ready || !window.__booted) return;
+    window.__fatal("This is taking longer than it should.",
+      "The tool loaded but its first screen has not finished. That is usually storage being blocked. Open the browser check, and if it is a private window, try a normal one.");
+  }, 25000);
 </script>
 <script nomodule>window.__fatal("This browser cannot run the tool.", "It has no support for JavaScript modules. Use a current Chrome, Edge, Firefox or Safari.");</script>
 

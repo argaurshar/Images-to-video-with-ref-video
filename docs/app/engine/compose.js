@@ -54,7 +54,17 @@ export async function blobToImage(blob) {
 }
 
 export function canvasToBlob(cv, type = "image/jpeg", quality = 0.92) {
-  return new Promise((r) => cv.toBlob(r, type, quality));
+  // toBlob hands back null rather than throwing when the browser cannot encode
+  // the canvas, which on a phone means it ran out of memory: exactly the case
+  // this function exists to handle. Left as null it surfaces three frames later
+  // as "could not be decoded as an image", which sends the designer looking at
+  // their photo instead of at their device.
+  return new Promise((res, rej) => cv.toBlob((b) => {
+    if (b) return res(b);
+    const e = new Error(`this browser could not encode a ${cv.width}×${cv.height} image, which usually means it has run out of memory. Close other tabs, or add the photos a few at a time.`);
+    e.code = "encode";
+    rej(e);
+  }, type, quality));
 }
 
 /** Broadly readable still formats. Anything else is re-encoded on the way in,

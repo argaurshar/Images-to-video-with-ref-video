@@ -404,6 +404,12 @@ on("POST", "/api/projects/:pid/hubs", async (m, body) => {
     const over = all.slice(room).map((f) => f.name || "unnamed");
     notes.push(`Eight renders per project is the limit, so ${over.length === 1 ? "one was" : over.length + " were"} not added: ${over.join(", ")}.`);
   }
+  // One file the browser cannot read must not throw away the ones it can. Six
+  // photos where the fifth is a HEIC should add five and name the sixth, the
+  // same way the over-eight case does, because the blobs of the first four are
+  // already written by then and an abort would orphan them.
+  const refused = [];
+  let added = 0;
   for (const f of files) {
     // The decoder is the authority on whether a file is an image, not the type
     // header: a gallery can hand over a JPEG as application/octet-stream with
@@ -413,13 +419,16 @@ on("POST", "/api/projects/:pid/hubs", async (m, body) => {
     let prepared;
     try {
       prepared = await prepareUpload(f);
-    } catch {
+    } catch (e) {
       const heic = /heic|heif/i.test(f.type) || /\.(heic|heif)$/i.test(f.name || "");
       const named = f.name || "that file";
-      throw new ApiError(400, heic
-        ? `${named} is an Apple HEIC photo and this browser cannot decode it. On the iPhone, set Settings › Camera › Formats to "Most Compatible" and take the photo again, or open this page in Safari, which reads HEIC natively.`
-        : `${named} could not be decoded as an image. JPEG, PNG and WebP always work; HEIC needs Safari.`);
+      refused.push(e && e.code === "encode" ? `${named} could not be added: ${e.message}`
+        : heic
+          ? `${named} is an Apple HEIC photo and this browser cannot decode it. On the iPhone, set Settings › Camera › Formats to "Most Compatible" and take the photo again, or open this page in Safari, which reads HEIC natively.`
+          : `${named} could not be decoded as an image. JPEG, PNG and WebP always work; HEIC needs Safari.`);
+      continue;
     }
+    added++;
     const id = uid("hub");
     const path = `projects/${p.id}/hubs/${id}.jpg`;
     const thumb = `projects/${p.id}/thumbs/${id}.jpg`;
@@ -427,7 +436,7 @@ on("POST", "/api/projects/:pid/hubs", async (m, body) => {
     await db.putFile(thumb, await thumbnail(prepared.img, prepared.width, prepared.height));
     const detected = analyseHub(drawToImg(prepared.img, 640), prepared.width, prepared.height);
     if (prepared.from) {
-      notes.push(`${f.name} was ${prepared.from[0]}×${prepared.from[1]} and has been resampled to ${prepared.width}×${prepared.height}. Nothing was cropped; a phone cannot hold a dozen full-size photos in canvas memory.`);
+      notes.push(`${f.name || "that photo"} was ${prepared.from[0]}×${prepared.from[1]} and has been resampled to ${prepared.width}×${prepared.height}. Nothing was cropped; a phone cannot hold a dozen full-size photos in canvas memory.`);
     }
     p.hubs.push({
       id, filename: f.name || `render-${p.hubs.length + 1}.jpg`, path, cls: detected.suggested_class,
@@ -437,9 +446,12 @@ on("POST", "/api/projects/:pid/hubs", async (m, body) => {
       materials: "", elements: "",
     });
   }
+  // Nothing got in at all: that is an error, not a note, and the first reason
+  // is the one worth saying.
+  if (!added) throw new ApiError(400, refused[0] || "no image was picked");
   p.budget = await estimate(p);
   await save(p);
-  return { project: p, notes };
+  return { project: p, notes, refused };
 });
 
 on("PATCH", "/api/projects/:pid/hubs/:hid", async (m, body) => {

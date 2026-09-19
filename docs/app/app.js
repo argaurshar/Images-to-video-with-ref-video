@@ -17,6 +17,10 @@ import { fileURL, quota, persist } from "./engine/db.js";
 import { probe } from "./engine/recorder.js";
 import { RES } from "./engine/compose.js";
 
+// The module evaluated, which is what the shell's watchdog is waiting to hear.
+// Whether the first screen draws is a separate signal, set after init resolves.
+window.__booted = true;
+
 const isSmallScreen = () => matchMedia("(max-width: 760px), (pointer: coarse)").matches;
 
 const STAGES = [
@@ -676,8 +680,10 @@ async function rIntake() {
     const r = await api(`/api/projects/${P.id}/hubs`, { body: fd });
     await reload();
     // resampling a phone photo is a thing that happened to the designer's file,
-    // so it is said rather than done quietly
-    if (r.notes && r.notes.length) toast(r.notes[0]);
+    // so it is said rather than done quietly. A file the browser refused matters
+    // more than a note about one it accepted, so it goes first and goes red.
+    if (r.refused && r.refused.length) toast(r.refused.join(" "), true);
+    else if (r.notes && r.notes.length) toast(r.notes[0]);
   }, "reading the photos…");
   // The button opens the input, inside the click that the browser counts as a
   // user gesture. Taking a copy of the FileList before clearing the input
@@ -703,6 +709,12 @@ async function rIntake() {
   // to whatever has focus, which is rarely the dropzone.
   document.onpaste = e => {
     if (!el("drop") || !e.clipboardData) return;
+    // A paste into a box someone is typing in belongs to that box. A cell copied
+    // out of a spreadsheet carries a picture of itself alongside its text, so
+    // without this, pasting the site address into the location field would file
+    // a screenshot as a render.
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     const cd = e.clipboardData;
     const files = cd.files && cd.files.length ? [...cd.files]
       : [...(cd.items || [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
@@ -745,12 +757,18 @@ async function rIntake() {
     meet, and "re-render it" is no use when the source is a photograph. The
     ratios that would cost least are offered as one tap. */
 function cropWarning(r) {
-  const best = (r.alternatives || []).filter(a => a.aspect !== P.intake.aspect).slice(0, 3);
+  // The engine returns every ratio ranked by what it costs, this one included.
+  // Only the ones that cost less than the ratio in force are an offer; the rest
+  // would be talking someone into a worse crop.
+  const all = r.alternatives || [];
+  const now = all.find(a => a.aspect === P.intake.aspect);
+  const best = all.filter(a => a.aspect !== P.intake.aspect && (!now || a.loss < now.loss)).slice(0, 3);
   modal(`<h3>Cropping, not stretching</h3>
     <p class="muted">A ratio change is always a crop here: the engine never invents picture beyond the edge of what you gave it (Law 6). At ${esc(P.intake.aspect)} that costs you:</p>
     <ul class="warn-list">${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
     ${best.length ? `<p>Ratios that keep more of these frames:</p>
-      <div class="choice">${best.map(a => `<span class="chip" data-asp="${a.aspect}">${a.aspect} · loses ${a.loss}%</span>`).join("")}</div>` : ""}
+      <div class="choice">${best.map(a => `<span class="chip" data-asp="${a.aspect}">${a.aspect} · loses ${a.loss}%</span>`).join("")}</div>`
+      : `<p class="muted">No other ratio does better with these frames: every one of them costs at least as much as ${esc(P.intake.aspect)}. A 4:3 photograph gives up about a quarter of itself whichever way it is cut. Shoot or render wider if you need the whole frame.</p>`}
     <div style="margin-top:14px"><button class="btn" id="cropok">Keep ${esc(P.intake.aspect)}</button></div>`);
   el("cropok").onclick = closeModal;
   el("modal-body").querySelectorAll("[data-asp]").forEach(c => c.onclick = () => busy(async () => {
@@ -1034,8 +1052,8 @@ async function rRender() {
 
 /* A blank page is indistinguishable from a broken app, so a boot that fails
    says so on screen. Setting the flag also stands the watchdog down. */
-init().then(() => { window.__booted = true; }).catch(e => {
-  window.__booted = true;
+init().then(() => { window.__ready = true; }).catch(e => {
+  window.__ready = true;
   const msg = (e && e.message) || String(e);
   if (window.__fatal) window.__fatal("The tool could not start.", msg + " — open the browser check for what this browser is missing.");
   else throw e;
