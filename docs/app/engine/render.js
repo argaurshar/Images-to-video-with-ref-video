@@ -9,7 +9,7 @@
    BS.1770 integrated measurement, and the container is whatever the browser
    will encode. */
 
-import { RES, OUTPUT_FPS, canvasOf, cropRect, paintTitle, paintSolidCard, paintOverlay, blobToImage } from "./compose.js";
+import { RES, resFor, OUTPUT_FPS, canvasOf, cropRect, paintTitle, paintSolidCard, paintOverlay, blobToImage } from "./compose.js";
 import { record } from "./recorder.js";
 import { sampleFrames, element as loadVideo, durationOf } from "./video.js";
 import * as I from "./imaging.js";
@@ -18,6 +18,24 @@ import { makeZip, bytesOf, textBytes } from "./zip.js";
 const CARD_SECONDS = 3.0;
 const FADE_IN = 1.2;
 const FADE_OUT = 3.0;
+
+/* A fade is a fraction of a film, not a fixed number of seconds. At 45 seconds
+   these are the numbers above and nothing changes; at 5 seconds the fixed
+   values would leave 0.8 s of picture between them, which is a fade with a
+   caption over it rather than a film. Everything the film spends time on —
+   the fades, the title cards, the lower third — is scaled the same way, so a
+   short film is a short film rather than a broken long one. */
+function timings(body) {
+  const k = Math.min(1, body / 20);                  // full length at 20 s of footage
+  const at_least = (v, floor) => Math.max(floor, v * k);
+  return {
+    fadeIn: Math.min(FADE_IN, at_least(FADE_IN, 0.3)),
+    fadeOut: Math.min(FADE_OUT, at_least(FADE_OUT, 0.6)),
+    card: Math.min(CARD_SECONDS, Math.max(1.2, body * 0.25)),
+    title: Math.min(4.0, Math.max(1.6, body * 0.45)),   // the overlaid title window
+    lowerThird: Math.min(5, Math.max(2, body * 0.6)),
+  };
+}
 
 /** Shared with the analysis side so a container that states no duration, which
     is every WebM this app records, is measured once and the same way. */
@@ -150,8 +168,7 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
     with 0.6 s fades. */
 export async function renderFilm(project, clips, beds, logo, onProgress, scale = 1) {
   const aspect = project.intake.aspect;
-  const [FW, FH] = RES[aspect] || RES["16:9"];
-  const [W, H] = [Math.round(FW * scale) & ~1, Math.round(FH * scale) & ~1];
+  const [W, H] = resFor(aspect, scale);
   const b = project.branding;
   const cv = canvasOf(W, H);
   const ctx = cv.getContext("2d");
@@ -166,8 +183,9 @@ export async function renderFilm(project, clips, beds, logo, onProgress, scale =
   const cardStart = ["start", "both"].includes(b.title_position);
   const cardEnd = ["end", "both"].includes(b.title_position);
   const solid = b.style === "card";
-  const headCard = solid && cardStart ? CARD_SECONDS : 0;
-  const tailCard = solid && cardEnd ? CARD_SECONDS : 0;
+  const T = timings(body);
+  const headCard = solid && cardStart ? T.card : 0;
+  const tailCard = solid && cardEnd ? T.card : 0;
   const total = headCard + body + tailCard;
   if (!body) throw new Error("no approved clips to render");
   // planning and consultation films carry the disclaimer on every frame
@@ -208,15 +226,19 @@ export async function renderFilm(project, clips, beds, logo, onProgress, scale =
         ctx.drawImage(seg.v, r.x, r.y, r.w, r.h, 0, 0, W, H);
       }
       const bodyT = t - headCard;               // time since the first shot began
-      paintOverlay(ctx, b, W, H, b.style === "lower_third" && bodyT < 5 && seg.i === 0, everyFrame);
-      if (!solid && cardStart && bodyT < 4.0) {
-        // in from 0.6 s over 0.5 s, out from 3.5 s over 0.5 s
-        const a = bodyT < 0.6 ? 0 : bodyT < 1.1 ? (bodyT - 0.6) / 0.5 : bodyT < 3.5 ? 1 : 1 - (bodyT - 3.5) / 0.5;
+      paintOverlay(ctx, b, W, H, b.style === "lower_third" && bodyT < T.lowerThird && seg.i === 0, everyFrame);
+      if (!solid && cardStart && bodyT < T.title) {
+        // the same shape as before — in, hold, out — measured against the
+        // title's own window rather than against four fixed seconds
+        const w = T.title;
+        const a = bodyT < 0.15 * w ? 0 : bodyT < 0.275 * w ? (bodyT - 0.15 * w) / (0.125 * w)
+          : bodyT < 0.875 * w ? 1 : 1 - (bodyT - 0.875 * w) / (0.125 * w);
         paintTitle(ctx, b, W, H, "start", clamp01(a), logoImg);
       }
-      if (!solid && cardEnd && t > total - tailCard - 4.5) {
-        const since = t - (total - tailCard - 4.5);
-        const a = since < 0.3 ? 0 : (since - 0.3) / 0.5;
+      const endWindow = T.title + 0.5;
+      if (!solid && cardEnd && t > total - tailCard - endWindow) {
+        const since = t - (total - tailCard - endWindow);
+        const a = since < 0.07 * endWindow ? 0 : (since - 0.07 * endWindow) / (0.11 * endWindow);
         paintTitle(ctx, b, W, H, "end", clamp01(a), logoImg);
       }
     } else {
@@ -226,8 +248,8 @@ export async function renderFilm(project, clips, beds, logo, onProgress, scale =
     }
     // fade from and to black at the ends of the film
     let fade = 0;
-    if (t < FADE_IN) fade = 1 - t / FADE_IN;
-    else if (t > total - FADE_OUT) fade = 1 - (total - t) / FADE_OUT;
+    if (t < T.fadeIn) fade = 1 - t / T.fadeIn;
+    else if (t > total - T.fadeOut) fade = 1 - (total - t) / T.fadeOut;
     if (fade > 0) {
       ctx.fillStyle = `rgba(0,0,0,${clamp01(fade)})`;
       ctx.fillRect(0, 0, W, H);
@@ -245,8 +267,7 @@ export async function renderFilm(project, clips, beds, logo, onProgress, scale =
 /** A crop-only variant: never a re-frame, never an outpaint. Recorded the same
     way, from the rendered film. */
 export async function renderCrop(filmBlob, aspect, onProgress, scale = 1) {
-  const [FW, FH] = RES[aspect];
-  const [W, H] = [Math.round(FW * scale) & ~1, Math.round(FH * scale) & ~1];
+  const [W, H] = resFor(aspect, scale);
   const v = await videoFor(filmBlob);
   const seconds = durationOf(v);
   if (!seconds) throw new Error("the film has no readable duration to crop from");
@@ -271,7 +292,7 @@ export async function renderCrop(filmBlob, aspect, onProgress, scale = 1) {
 
 /** Measure what was actually produced, rather than trusting the plan. */
 export async function verify(filmBlob, expected, aspect, usedUploadedBed, info, size) {
-  const [W, H] = size || RES[aspect] || RES["16:9"];
+  const [W, H] = size || resFor(aspect);
   const { frames, meta } = await sampleFrames(filmBlob, { sampleFps: 2, maxW: 200, maxFrames: 90 });
   const arc = frames.map((f) => Math.round(I.luminance(f) * 1000) / 1000);
   let lufs = null;

@@ -210,7 +210,10 @@ export function buildPlan(p, clipSeconds = 5) {
   const classes = ["exterior", "interior"].filter((c) => hubsByCls[c].length);
   if (!classes.length) return { approved: false, reference_driven: false, shots: [], warnings: ["No renders uploaded."], rationale: "" };
   const both = classes.length === 2;
-  const n = Math.max(1, intake.length_shots);
+  // A whole number, always: an imported project can carry anything, and NaN
+  // here used to filter every chapter away and return an empty plan silently.
+  const nRaw = Math.round(Number(intake.length_shots));
+  const n = Number.isFinite(nRaw) ? Math.max(1, Math.min(30, nRaw)) : 5;
   const warnings = [];
 
   const ref = intake.route === "reference" ? referenceStructure(p.reference, n) : null;
@@ -254,8 +257,18 @@ export function buildPlan(p, clipSeconds = 5) {
   const nCh = chapters.length;
   let per = new Array(nCh).fill(Math.floor(n / nCh));
   for (let i = 0; i < n % nCh; i++) per[i] += 1;
+  // A short film cannot hold every season or every hour, and dropping them
+  // quietly is how a designer ends up wondering where winter went.
+  const droppedCh = chapters.filter((_, i) => !(per[i] > 0));
   chapters = chapters.filter((_, i) => per[i] > 0);
   per = per.filter((k) => k > 0);
+  if (droppedCh.length) {
+    const names = [...new Set(droppedCh.map(([se, t]) => (seasonList.length > 1 ? se : String(t || "").replace(/_/g, " "))))];
+    warnings.push(`${n} shot${n === 1 ? "" : "s"} is not enough for everything asked for, so ${names.length === 1 ? "one was" : names.length + " were"} left out: ${names.join(", ")}. Add shots, or narrow the brief so the film keeps what matters.`);
+  }
+  if (n <= 2) {
+    warnings.push(`At ${n} shot${n === 1 ? "" : "s"} the scale pyramid, the chapter closer and the closing human beat have nothing to work with: every shot is a wide. It is a clip, not a sequence. Three or more shots is where the planner starts earning its keep.`);
+  }
 
   // one heavy beat: the wettest chapter, its medium shot
   let heavyCh = null;
@@ -387,9 +400,16 @@ export function buildPlan(p, clipSeconds = 5) {
   if (ref && shots.length && intake.time_arc === "dawn_to_night" && (ARC_SLOTS[ref.arc || "flat"] || []).length) {
     warnings.push(`Time arc follows the reference's light curve (${ref.arc}): ${shots[0].time} to ${shots[shots.length - 1].time}.`);
   }
+  // A leftover intent still has to land on a shot that can serve it: "the way
+  // afternoon light enters the living room" on an exterior wide is an
+  // instruction the generator cannot follow and the audit cannot catch.
   intents.forEach((text, ii) => {
     if (usedIntents.has(ii) || !shots.length || !text) return;
-    const free = shots.find((s) => !s.design_intent);
+    const wantsInterior = INTERIOR_WORDS.test(text);
+    const want = wantsInterior ? "interior" : "exterior";
+    const free = shots.find((s) => !s.design_intent && s.cls === want);
+    // No shot of the right kind: leave it unassigned and let validate() say so,
+    // rather than attaching it to a shot that cannot serve it.
     if (free) { free.design_intent = text; usedIntents.add(ii); }
   });
   const plan = { approved: false, reference_driven: !!ref, shots, warnings, rationale: "" };

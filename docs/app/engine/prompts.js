@@ -49,8 +49,26 @@ export function stillPrompt(p, shot, hub, corrections = "") {
   const k = L.KELVIN[st.time] || 5000;
   const loc = p.intake.location || "the site";
   const local = prof.signature || "";
-  const materials = (hub.materials || "").trim() || "the materials exactly as rendered";
-  const elements = (hub.elements || "").trim() || "every level, opening, canopy, wall, tree and road exactly as rendered";
+  // A list reads as exhaustive. "two levels, four windows, a canopy" tells a
+  // model what to protect and, by omission, what it may take liberties with,
+  // so everything the designer did not think to write is licensed away. Both
+  // fields therefore always end by saying that the list is not the whole of
+  // it — the designer's own words included, not only a drafted list.
+  const listed = (v, fallback, tail) => {
+    const t = String(v || "").trim().replace(/[.;,\s]+$/, "");
+    return t ? `${t}; and everything else ${tail}` : fallback;
+  };
+  const materials = listed(hub.materials, "the materials exactly as rendered",
+    "about the materials and finishes exactly as in the attached image");
+  const elements = listed(hub.elements,
+    shot.cls === "interior"
+      ? "every opening, joinery run, fitting, fixture and floor pattern exactly as rendered"
+      : "every level, opening, canopy, wall, tree and road exactly as rendered",
+    "in the frame exactly as rendered, in the position and at the size it holds now");
+  // The intake asks for the three things the client should notice and says each
+  // becomes a shot. It did become a shot, but the sentence never reached the
+  // generator, so the shot was planned around it and then shot without it.
+  const intent = String(shot.design_intent || "").trim().replace(/[.\s]+$/, "");
   let cues = shot.motion;
   if (p.intake.mood === "serene" && shot.cls === "exterior") cues = cues.split(",")[0] + ", nothing else moving";
   const people = peopleLine(p, shot);
@@ -74,6 +92,7 @@ export function stillPrompt(p, shot, hub, corrections = "") {
       `about ${k}K. Weather: ${st.weather}. Vegetation: ${prof.vegetation || ""} in its ${st.season} state. ` +
       `${local ? local + "." : ""} Interior lights ${lights}.\n\n` +
       `Motion cues, light only: ${cues}.\n\n` +
+      (intent ? `What this shot is for, to be served by light and weather alone and never by moving anything: ${intent}.\n\n` : "") +
       `${people}\n\n` +
       "No bright coloured clothing. No crowd. No text. No composite grid, single image only. " +
       "Photoreal, natural colour grade, verticals true.";
@@ -91,6 +110,7 @@ export function stillPrompt(p, shot, hub, corrections = "") {
       `light entering ${shot.sun_side}, about ${k}K. Artificial lights ${lights}. ` +
       `Through the glazing: ${through}.\n\n` +
       `Motion cues, light only: ${cues}.\n\n` +
+      (intent ? `What this shot is for, to be served by light alone and never by moving anything: ${intent}.\n\n` : "") +
       `${people}\n\n` +
       "No bright coloured clothing. No crowd. No text. No composite grid, single image only. " +
       "Photoreal, natural colour grade, wide lens, verticals true.";

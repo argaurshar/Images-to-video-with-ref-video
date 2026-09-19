@@ -15,7 +15,8 @@
 import { call, ApiError, MAX_ATTEMPTS_PER_SHOT } from "./engine/api.js";
 import { fileURL, quota, persist } from "./engine/db.js";
 import { probe } from "./engine/recorder.js";
-import { RES } from "./engine/compose.js";
+import { RES, resFor, commonAspect, ratioOf } from "./engine/compose.js";
+import { VOCAB, elementSuggestions } from "./engine/draft.js";
 
 // The module evaluated, which is what the shell's watchdog is waiting to hear.
 // Whether the first screen draws is a separate signal, set after init resolves.
@@ -523,11 +524,61 @@ function compare(gen, hubImg, checklist, title) {
 }
 
 // ---------------------------------------------------------------- 1 intake
+/* Filling in the brief without typing it.
+
+   The finish names are chips rather than a drafted sentence, and the reason is
+   worth stating where the code is: that field is interpolated verbatim into
+   "Materials, by name: …" on every prompt, and there is no white balance in
+   this engine. Warm light reads as warm material, a wall in sun and the same
+   wall in shade cluster as two colours, and in a street photograph the colour
+   comes off the awnings. A machine sentence there would be a wrong sentence
+   the generator then obeys. A word tapped from this row is the designer's own.
+   The measured colours are shown next to it as what they are: the colours in
+   this light, which is the thing the film is about to change. */
+function vocabRow(h) {
+  const groups = VOCAB[h.cls] || VOCAB.exterior;
+  return `<details class="suggest" data-for="${h.id}" data-k="materials">
+    <summary>Name the finishes without typing${h.materials ? "" : " · nothing is filled in for you here, and this is why"}</summary>
+    <div class="muted">The colours in a photograph are the light, not the finish: a white wall at golden hour measures as warm tan, and the same wall in shade measures as two colours. Those words would go into every prompt as if they were the material, and the film's whole job is to change the light. So the engine will not write this field. Tap what is actually there and it is your word that goes in. Leave it empty and every prompt says "the materials exactly as rendered", which is safe and vague.</div>
+    ${groups.map(([name, words]) => `<div class="grp"><span class="lbl">${esc(name)}</span>${words.map(w =>
+      `<span class="chip add" data-add="${esc(w)}">${esc(w)}</span>`).join("")}</div>`).join("")}
+  </details>`;
+}
+
+/* Elements is geometry, which is what the engine protects rather than changes,
+   so a measured fact is safe here in a way it is not above. The ones that
+   arrive ticked are the ones a measurement supports; a count is only ever
+   offered when the openings form a plain regular row. */
+function elementsRow(h) {
+  const sugg = elementSuggestions(h.cls, h.measured || {});
+  const have = String(h.elements || "").toLowerCase();
+  const measured = sugg.filter(x => x.measured);
+  return `<div class="suggest tight" data-for="${h.id}" data-k="elements">
+    <div class="row" style="gap:8px;align-items:center">
+      <button class="btn small secondary" data-fill="${h.id}">Fill this in for me</button>
+      <span class="muted">${measured.length ? esc(measured[0].t) + ", counted in your image" : "the usual things to protect, for this kind of render"}</span>
+    </div>
+    <details><summary>choose them one at a time</summary>
+      <div class="grp">${sugg.map(x =>
+        `<span class="chip add ${have.includes(x.t.toLowerCase()) ? "on" : ""}" data-add="${esc(x.t)}"${x.measured ? ' title="counted in this image"' : ""}>${x.measured ? "▣ " : ""}${esc(x.t)}</span>`).join("")}</div>
+    </details>
+  </div>`;
+}
+
+/* The colours actually in the image, as evidence rather than as an answer. */
+function swatchRow(h) {
+  const m = h.measured;
+  if (!m || !m.swatches || !m.swatches.length) return "";
+  return `<div class="swatches"><span class="muted">colours in this image, under ${esc(m.measured_under)}:</span>
+    ${m.swatches.map(sw => `<span class="sw" title="${esc(sw.word)} · ${Math.round(sw.share * 100)}% of the surface"><i style="background:${esc(sw.hex)}"></i>${esc(sw.word)}</span>`).join("")}
+    <span class="muted">a colour is not a finish: these are what the light is doing today, and the film changes the light.</span></div>`;
+}
+
 const CHOICES = {
   route: [["brief", "Season or mood brief"], ["reference", "Reference video"]],
   project_type: [["", "not stated"], ["house", "House"], ["adu", "ADU"], ["extension", "Extension"], ["apartment", "Apartment"], ["workplace", "Workplace"], ["hospitality", "Hospitality"]],
-  aspect: [["16:9", "16:9 presentation"], ["9:16", "9:16 vertical"], ["1:1", "1:1 square"], ["4:5", "4:5 feed"]],
-  length: [["5", "25 s · 5 shots"], ["9", "45 s · 9 shots"], ["14", "70 s · 14 shots"], ["custom", "Custom"]],
+  aspect: [["auto", "Auto · match my renders"], ["16:9", "16:9 presentation"], ["9:16", "9:16 vertical"], ["1:1", "1:1 square"], ["4:5", "4:5 feed"]],
+  length: [["1", "5 s · 1 shot"], ["2", "10 s · 2 shots"], ["3", "15 s · 3 shots"], ["5", "25 s · 5 shots"], ["9", "45 s · 9 shots"], ["14", "70 s · 14 shots"], ["custom", "Custom"]],
   time_arc: [["dawn_to_night", "Dawn to night"], ["single", "Single time of day"], ["golden_hour", "Golden hour only"], ["night", "Night only"]],
   mood: [["serene", "Serene and still"], ["moody", "Moody and atmospheric"], ["warm", "Warm and lived-in"], ["bold", "Bold and dramatic"]],
   people: [["none", "None (pure architecture)"], ["scale_figure", "Scale figure, from behind"], ["lifestyle", "Lifestyle, one pair or small group"]],
@@ -535,10 +586,23 @@ const CHOICES = {
   end_use: [["client_presentation", "Client presentation"], ["planning_consultation", "Planning or neighbour consultation"], ["website", "Website hero"], ["social", "Social (Reels/Shorts)"], ["awards", "Awards submission"], ["developer_marketing", "Marketing for a developer client"]],
   interior_emphasis: [["", "Not applicable"], ["daylight", "Daylight through the day"], ["night", "Night and artificial light"], ["seasonal_view", "Seasonal view through openings"], ["lived_in", "Lived-in moments"]],
 };
-function choice(group, lbl, cur, multi = false) {
-  return `<div class="opt"><span class="lbl">${esc(lbl)}</span><div class="choice" data-group="${group}" ${multi ? 'data-multi="1"' : ""}>${CHOICES[group].map(([v, l]) =>
+function choice(group, lbl, cur, multi = false, options = null) {
+  return `<div class="opt"><span class="lbl">${esc(lbl)}</span><div class="choice" data-group="${group}" ${multi ? 'data-multi="1"' : ""}>${(options || CHOICES[group]).map(([v, l]) =>
     `<span class="chip ${(multi ? cur.includes(v) : String(cur ?? "") === v) ? "on" : ""}" data-v="${esc(v)}">${esc(l)}</span>`).join("")}</div></div>`;
 }
+
+/** The ratio chips. "Auto" is offered first and names the shape it resolves to,
+    and a ratio the renders are already in stays on the row once chosen, so a
+    3:2 film does not quietly become 16:9 on the next save. */
+function aspectOptions(cur, native) {
+  const list = CHOICES.aspect.map(([v, l]) => [v, v === "auto" && native ? `Auto · match my renders (${native})` : l]);
+  const have = new Set(list.map(([v]) => v));
+  for (const extra of [native, cur]) {
+    if (extra && extra !== "auto" && !have.has(extra)) { list.splice(1, 0, [extra, `${extra}${extra === native ? " · your renders" : ""}`]); have.add(extra); }
+  }
+  return list;
+}
+function aspectChips(cur) { return String(cur ?? ""); }
 function picked(group) { const g = el("main").querySelector(`[data-group="${group}"]`); const on = g ? g.querySelector(".chip.on") : null; return on ? on.dataset.v : ""; }
 function readIntakeForm() {
   // The questionnaire lives in the DOM until it is saved, and uploading or
@@ -549,7 +613,7 @@ function readIntakeForm() {
   return {
     route: picked("route"), aspect: picked("aspect"), time_arc: picked("time_arc"), single_time: el("i_single_time").value,
     mood: picked("mood"), people: picked("people"), project_type: picked("project_type"),
-    length_shots: len === "custom" ? +el("i_custom").value : +len,
+    length_shots: Math.max(1, Math.min(30, Math.round(Number(len === "custom" ? el("i_custom").value : len)) || 5)),
     seasons: [...el("seasons").querySelectorAll(".chip.on")].map(c => c.dataset.s),
     location: el("i_location").value, project_stage: picked("project_stage"), end_use: picked("end_use"),
     interior_emphasis: picked("interior_emphasis") || null,
@@ -572,7 +636,10 @@ async function rIntake() {
   const I = Object.assign({}, P.intake, pendingIntake || {});
   pendingIntake = null;
   const hasInteriors = P.hubs.some(h => h.cls === "interior");
-  const lenKey = [5, 9, 14].includes(I.length_shots) ? String(I.length_shots) : "custom";
+  // kept in step with CHOICES.length above, or a preset renders as "Custom"
+  const LEN_PRESETS = CHOICES.length.map(([v]) => v).filter(v => v !== "custom").map(Number);
+  const lenKey = LEN_PRESETS.includes(I.length_shots) ? String(I.length_shots) : "custom";
+  const nativeAspect = commonAspect(P.hubs || []);
   const hubs = (P.hubs || []).map(h => `
     <div class="tile"><img data-file="projects/${P.id}/thumbs/${h.id}.jpg" alt="" data-view="${h.id}">
       <div class="body">
@@ -582,8 +649,11 @@ async function rIntake() {
         </div>
         <label class="f">label<input data-h="${h.id}" data-k="label" value="${esc(h.label)}"></label>
         ${h.cls === "interior" ? `<label class="f">looks out at (shares that view's weather and time)<select data-link="${h.id}"><option value="">not linked</option>${(P.hubs || []).filter(x => x.cls === "exterior").map(x => `<option value="${x.id}" ${h.continuity_group && h.continuity_group === x.continuity_group ? "selected" : ""}>${esc(x.label || x.id)}</option>`).join("")}</select></label>` : ""}
-        <label class="f">materials and finishes, by name<textarea data-h="${h.id}" data-k="materials" placeholder="${h.cls === "exterior" ? "e.g. board-formed concrete, spotted gum battens, zinc standing seam" : "e.g. oak joinery, honed limestone benchtop, wool rug"}">${esc(h.materials)}</textarea></label>
+        <label class="f">materials and finishes, by name<textarea data-h="${h.id}" data-k="materials" placeholder="${h.cls === "exterior" ? "e.g. smooth render, cedar siding, standing seam metal roof, black steel windows" : "e.g. white oak floor, painted shaker cabinetry, honed stone benchtop"}">${esc(h.materials)}</textarea></label>
+        ${vocabRow(h)}
         <label class="f">fixed elements to protect<textarea data-h="${h.id}" data-k="elements" placeholder="${h.cls === "exterior" ? "e.g. two levels, four windows per level, entry canopy, retaining wall left, road along the front, two oaks" : "e.g. one window wall, island with two pendants, full-height joinery left"}">${esc(h.elements)}</textarea></label>
+        ${elementsRow(h)}
+        ${swatchRow(h)}
         <div class="muted">detected: ${esc(h.detected.time_of_day)} · ${esc(h.detected.colour_temperature)} · sky ${fmt(h.detected.sky_fraction)} · ${esc(h.detected.aspect)} · ${h.detected.lights_on ? "lights on" : "lights off"}${h.detected.climate_hint ? " · " + esc(h.detected.climate_hint) : ""}</div>
         <button class="btn small danger" data-del="${h.id}" style="margin-top:6px">remove</button>
       </div></div>`).join("");
@@ -628,9 +698,9 @@ async function rIntake() {
           ${choice("project_type", "project type", I.project_type || "")}
         </div>
         <div class="row" style="gap:18px;margin-top:12px">
-          ${choice("aspect", "aspect ratio (by crop only)", I.aspect)}
+          ${choice("aspect", "shape of the film", aspectChips(I.aspect, nativeAspect), false, aspectOptions(I.aspect, nativeAspect))}
           ${choice("length", "length", lenKey)}
-          <label class="f" id="customwrap" style="${lenKey === "custom" ? "" : "display:none"}">custom shots<input id="i_custom" type="number" min="1" max="30" value="${I.length_shots}"></label>
+          <label class="f" id="customwrap" style="${lenKey === "custom" ? "" : "display:none"}">custom shots<input id="i_custom" type="number" step="1" min="1" max="30" value="${I.length_shots}"></label>
         </div>
         <div class="opt" style="margin-top:12px"><span class="lbl">seasons</span><div class="choice" id="seasons">${SEASONS.map(s => `<span class="chip ${I.seasons.includes(s) ? "on" : ""}" data-s="${s}">${s}</span>`).join("")}</div></div>
         <div class="row" style="gap:18px;margin-top:12px">
@@ -659,9 +729,7 @@ async function rIntake() {
       </div>
     </div>
     <div class="card"><h3 style="margin-top:0"><span class="n">4</span>Budget gate</h3>
-      ${P.budget.total ? `<div class="kv"><div>Hero variants</div><div>${P.budget.hero_images} × ${P.budget.image_cost}</div><div>Stills</div><div>${P.budget.stills} × ${P.budget.image_cost}</div><div>Clips</div><div>${P.budget.clips} × ${P.budget.video_cost}</div><div>Reserve 20%</div><div>${fmt(P.budget.reserve)}</div><div>Total</div><div><b>${fmt(P.budget.total)}</b></div></div>
-        <p class="muted">${(settings && settings.provider) === "demo" ? "On the demo generator nothing is charged; the estimate shows what a real provider would cost at the rates in Settings." : "Real money at the rates in Settings. Nothing is generated until this is confirmed."}</p>
-        <div style="margin-top:10px">${P.budget.confirmed ? `<span class="tag ok">confirmed</span>` : `<button class="btn" id="confirm_budget">Confirm budget</button>`}</div>` : `<p class="muted">Save the intake to see the estimate.</p>`}
+      ${P.budget.total ? budgetCard(P.budget) : `<p class="muted">Save the intake to see the estimate.</p>`}
     </div>`);
   // chips
   el("main").querySelectorAll(".choice[data-group]").forEach(g => g.querySelectorAll(".chip").forEach(c => c.onclick = () => {
@@ -728,6 +796,30 @@ async function rIntake() {
     await api(`/api/projects/${P.id}/hubs/${inp.dataset.h}`, { method: "PATCH", body: { [inp.dataset.k]: inp.value } });
     if (inp.dataset.k === "cls") await reload(); else { P = await api(`/api/projects/${P.id}`); renderSpend(); pendingIntake = null; }
   }));
+  // A tapped chip appends to the field and saves it, so the designer builds the
+  // sentence by choosing rather than by typing, and what lands in the prompt is
+  // still a word they picked.
+  const appendTo = async (hid, key, text) => {
+    const ta = el("main").querySelector(`textarea[data-h="${hid}"][data-k="${key}"]`);
+    if (!ta) return;
+    const cur = ta.value.trim().replace(/,+$/, "");
+    if (cur.toLowerCase().includes(text.toLowerCase())) return;
+    ta.value = cur ? `${cur}, ${text}` : text;
+    pendingIntake = readIntakeForm();
+    await api(`/api/projects/${P.id}/hubs/${hid}`, { method: "PATCH", body: { [key]: ta.value } });
+    P = await api(`/api/projects/${P.id}`);
+  };
+  el("main").querySelectorAll(".suggest .chip.add").forEach(c => c.onclick = () => busy(async () => {
+    const box = c.closest(".suggest");
+    await appendTo(box.dataset.for, box.dataset.k, c.dataset.add);
+    c.classList.add("on");
+  }));
+  el("main").querySelectorAll("[data-fill]").forEach(b => b.onclick = () => busy(async () => {
+    const hid = b.dataset.fill, h = hub(hid);
+    for (const x of elementSuggestions(h.cls, h.measured || {})) if (x.on) await appendTo(hid, "elements", x.t);
+    await renderAll();
+    toast("suggested elements added — edit or remove any that are wrong");
+  }));
   el("main").querySelectorAll("[data-link]").forEach(sel => sel.onchange = () => busy(async () => {
     pendingIntake = readIntakeForm();
     const interiorId = sel.dataset.link, exteriorId = sel.value;
@@ -749,6 +841,33 @@ async function rIntake() {
     pendingIntake = readIntakeForm();
     await api(`/api/projects/${P.id}/budget/confirm`, { method: "POST" }); await reload(); toast("budget confirmed");
   });
+}
+
+/** What the number is made of, and what it is a number about. An estimate with
+    no model, no unit and no rate behind it is a number nobody can check, and
+    the rate a fresh install starts with is a placeholder rather than anybody's
+    contract, so the panel says which of the two it is looking at. */
+function budgetCard(b) {
+  const money = (x) => fmt(x, 2);
+  const per = b.seconds ? b.total / b.seconds : 0;
+  const rows = [
+    ["Image model", b.provider === "demo" ? "demo generator, drawn in this tab" : esc(b.image_model)],
+    ["Video model", b.provider === "demo" ? "demo generator, drawn in this tab" : esc(b.video_model)],
+    ["Hero variants", `${b.hero_images} images × ${money(b.image_cost)} = ${money(b.hero_images * b.image_cost)}<div class="muted">two per class, the gate that proves the look before the rest is generated</div>`],
+    ["Stills", `${b.stills} images × ${money(b.image_cost)} = ${money(b.stills * b.image_cost)}<div class="muted">one per shot</div>`],
+    ["Clips", `${b.clips} × ${money(b.video_cost)} = ${money(b.clips * b.video_cost)}<div class="muted">billed in ${b.clip_unit_seconds}-second blocks, so a ${b.clip_unit_seconds * 2}-second shot is two${b.shots && b.clips !== b.shots ? ` — ${b.shots} shots come to ${b.clips} blocks` : ""}</div>`],
+    [`Reserve ${Math.round((b.reserve_fraction || 0.2) * 100)}%`, `${money(b.reserve)}<div class="muted">for retries: a shot that fails QC may be re-shot up to ${b.max_attempts} times, and those are not in the lines above</div>`],
+    ["Total", `<b>${money(b.total)}</b>${b.seconds ? `<div class="muted">about ${money(per)} per second of finished film, ${b.seconds}s at ${b.shots} shot${b.shots === 1 ? "" : "s"}</div>` : ""}`],
+  ];
+  return `<div class="kv">${rows.map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join("")}</div>
+    ${b.provider === "demo"
+      ? `<div class="note ok" style="margin-top:10px"><b>Nothing is charged.</b> The demo generator draws every still and clip in this tab. The figures above are what the same project would cost on a paid provider at the rates in Settings, so you can see the shape of the bill before you ever pay one.</div>`
+      : `<div class="note" style="margin-top:10px"><b>Real money, at the rates in Settings.</b> Calls go to ${esc(b.image_endpoint)} and ${esc(b.video_endpoint)}.</div>`}
+    ${b.rates_are_defaults
+      ? `<div class="note warn" style="margin-top:10px"><b>These rates are placeholders, not quotes.</b> ${money(b.image_cost)} an image and ${money(b.video_cost)} per ${b.clip_unit_seconds}-second clip are the numbers this app ships with; no contract is in this repository and no price list is fetched. Until you put your own rate in Settings, treat the total as arithmetic rather than as a price. The unit counts above are exact either way.</div>`
+      : `<div class="note ok" style="margin-top:10px">Priced at your own rates: ${money(b.image_cost)} an image, ${money(b.video_cost)} per ${b.clip_unit_seconds}-second clip.</div>`}
+    <p class="muted">The total is a floor, not a ceiling. It covers one still and one clip per shot plus the reserve; regenerating a still you do not like, or a second attempt at a clip, is charged on top.</p>
+    <div style="margin-top:10px">${b.confirmed ? `<span class="tag ok">confirmed</span> <span class="muted">at ${money(b.image_cost)} / ${money(b.video_cost)} on ${esc(b.provider)}</span>` : `<button class="btn" id="confirm_budget">Confirm budget</button>`}</div>`;
 }
 
 /** The ratio change is a crop and only a crop, so a source that cannot give up
@@ -1025,15 +1144,25 @@ async function rBranding() {
 // ---------------------------------------------------------------- 9 render
 async function rRender() {
   const D = P.deliverables; const v = D.verification || {};
-  const [FW, FH] = RES[P.intake.aspect] || RES["16:9"];
-  const sizeFor = s => `${Math.round(FW * s) & ~1}×${Math.round(FH * s) & ~1}`;
+  const [FW, FH] = resFor(P.intake.aspect);
+  const sizeFor = s => { const [w, h] = resFor(P.intake.aspect, s); return `${w}×${h}`; };
   const small = isSmallScreen();
-  const SIZES = [[1, "Full"], [0.667, "Two thirds"], [0.5, "Half"]];
+  // "Auto" is the size your renders can actually carry. A 1600-pixel render
+  // scaled up to 1920 is 1920 pixels of nothing, and a phone will not hold a
+  // full 1080p canvas plus an encoder, so auto takes the smaller of the two
+  // and says which it took.
+  const srcLong = Math.max(...(P.hubs || []).map(h => Math.max(h.width, h.height)).concat([0]));
+  const frameLong = Math.max(FW, FH);
+  const fromSource = srcLong ? Math.min(1, Math.max(0.25, Math.round((srcLong / frameLong) * 100) / 100)) : 1;
+  const autoScale = small ? Math.min(0.5, fromSource) : fromSource;
+  const autoWhy = small && fromSource > 0.5 ? "this phone" : srcLong ? `your renders (${srcLong}px)` : "the default";
+  const SIZES = [[autoScale, `Auto · matched to ${autoWhy}`], [1, "Full"], [0.667, "Two thirds"], [0.5, "Half"]]
+    .filter(([v], i, a) => i === 0 || Math.abs(v - a[0][0]) > 0.02);
   await setHTML(el("main"), `<h2>Final render and delivery</h2><p class="lead">Normalise to the target ratio at 30 fps, hard cuts, title cards and stamp, fades, the ambience bed. Then the film, crop-only variants, the stills pack and the project record.</p>
     ${blocker("render")}
     <div class="card"><div class="row">
-      <label class="f">render size<select id="size">${SIZES.map(([s, l]) => `<option value="${s}" ${(small ? s === 0.5 : s === 1) ? "selected" : ""}>${l} · ${sizeFor(s)}</option>`).join("")}</select></label>
-      <div class="opt"><span class="lbl">extra crops</span><div class="chips" id="crops">${["16:9", "9:16", "1:1", "4:5"].filter(a => a !== P.intake.aspect).map(a => `<span class="chip" data-a="${a}">${a}</span>`).join("")}</div></div>
+      <label class="f">render size<select id="size">${SIZES.map(([s, l], i) => `<option value="${s}" ${i === 0 ? "selected" : ""}>${l} · ${sizeFor(s)}</option>`).join("")}</select></label>
+      <div class="opt"><span class="lbl">extra crops</span><div class="chips" id="crops">${[...new Set(["16:9", "9:16", "1:1", "4:5", commonAspect(P.hubs || [])].filter(Boolean))].filter(a => a !== P.intake.aspect).map(a => `<span class="chip" data-a="${a}">${a}</span>`).join("")}</div></div>
       <button class="btn" id="go" ${locked("render") ? "disabled" : ""}>${D.film ? "Render again" : "Render film"}</button></div>
       <p class="muted">The film is written in real time, so it takes about as long as it runs, and each extra crop takes that again. Keep this page in front while it works: in the background the picture freezes while the clock keeps running, and the render is thrown away rather than saved wrong.${small ? " On a phone, half size is the default because a 1080p canvas, several video tracks and an encoder at once is more than most phones will hold. Render it full size on a laptop when the film is settled." : ""}</p></div>
     <div id="jobbar"></div>

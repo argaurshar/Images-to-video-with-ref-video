@@ -20,13 +20,20 @@ import { runQC, meanBrightness } from "./qc.js";
 import { makeProvider, testProvider, ProviderError } from "./providers.js";
 import { renderFilm, renderCrop, verify, stillsPack, projectRecord } from "./render.js";
 import { drawToImg, imgToCanvas } from "./imaging.js";
-import { canvasOf, cropLoss, thumbnail, blobToImage, canvasToBlob, prepareUpload } from "./compose.js";
+import { canvasOf, cropLoss, thumbnail, blobToImage, canvasToBlob, prepareUpload, commonAspect, ratioOf, resFor } from "./compose.js";
+import { draftLabel, measureBrief } from "./draft.js";
 import { posterBlob } from "./video.js";
 import { makeZip, readZip, bytesOf, textBytes } from "./zip.js";
 
 export const CLIP_SECONDS = 5;
 export const MAX_ATTEMPTS_PER_SHOT = 2;
 const RESERVE_FRACTION = 0.20;
+/* The rates a fresh install starts with. They are placeholders, not quotes:
+   nobody's contract is in this repository. Knowing whether a rate is still one
+   of these is the difference between an estimate and a number with no meaning,
+   so the budget says which it is looking at. */
+const DEFAULT_IMAGE_COST = 0.08;
+const DEFAULT_VIDEO_COST = 0.28;
 
 export class ApiError extends Error {
   constructor(status, detail) { super(detail); this.status = status; this.detail = detail; }
@@ -97,19 +104,81 @@ function clipUnits(p, nShots) {
   return units;
 }
 
+/** A shot count that is a whole number in range, whatever was typed, pasted or
+    imported. Math.max(1, undefined) is NaN, which used to reach the planner
+    and come back with an empty plan and no warning. */
+function shotCount(v) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.max(1, Math.min(30, n)) : 5;
+}
+
+/** Every ratio worth offering, cheapest crop first. The renders' own shape is
+    in the list, because for a set of photographs it is usually the answer. */
+function rankAspects(hubs, current) {
+  const own = commonAspect(hubs);
+  const names = ["16:9", "9:16", "1:1", "4:5", "3:2", "4:3", ...(own ? [own] : []), ...(current ? [current] : [])];
+  const seen = new Set();
+  return names.filter((a) => { if (seen.has(a)) return false; seen.add(a); return true; })
+    .map((a) => ({ aspect: a, worst: Math.max(...hubs.map((h) => cropLoss(h.width, h.height, a))) }))
+    .sort((x, y) => x.worst - y.worst)
+    .map((x) => ({ aspect: x.aspect, loss: Math.round(x.worst * 100), native: x.aspect === own }));
+}
+
+function leastLossyAspect(hubs) {
+  if (!hubs || !hubs.length) return null;
+  const r = rankAspects(hubs, null)[0];
+  return r ? r.aspect : null;
+}
+
+/** The model a path names. An endpoint is the only place the choice of model
+    is recorded, so the budget reads it from there rather than asserting one:
+    change the path in Settings and the panel says the new name. */
+export function modelName(path) {
+  const last = String(path || "").split("?")[0].split("/").filter(Boolean).pop() || "";
+  const pretty = {
+    "gemini-2-5-flash-image-preview": "Gemini 2.5 Flash Image (Nano Banana)",
+    "kling-v2-5-pro": "Kling v2.5 Pro",
+  };
+  if (pretty[last]) return pretty[last];
+  return last.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "not set";
+}
+
 async function estimate(p) {
   const s = await db.loadSettings();
-  const classes = new Set(p.hubs.map((h) => h.cls));
-  const nShots = Math.max(1, p.intake.length_shots);
+  const nShots = shotCount(p.intake.length_shots);
+  // Hero variants are two per class, but only for classes the film will
+  // actually contain. A one-shot exterior film beside an unused interior
+  // render used to be charged for two interior heroes it could never use.
+  const planned = new Set((p.plan && p.plan.shots || []).map((x) => x.cls));
+  const classes = planned.size ? planned : new Set(p.hubs.map((h) => h.cls));
   const heroImages = 2 * (classes.size || 1);
   const units = clipUnits(p, nShots);
+  const demo = s.provider === "demo";
   const b = {
-    confirmed: p.budget.confirmed, hero_images: heroImages, stills: nShots, clips: nShots,
+    confirmed: p.budget.confirmed, hero_images: heroImages, stills: nShots,
+    // What is billed, not how many shots there are: a shot longer than five
+    // seconds is two clip units, and the line that is printed has to be the
+    // line the total is made of.
+    clips: units, shots: nShots,
     image_cost: s.image_cost, video_cost: s.video_cost, reserve: 0, total: 0,
+    // Where the number came from, so the panel can say it rather than showing
+    // an unexplained 2.35.
+    provider: s.provider,
+    image_model: demo ? "drawn in this tab" : modelName(s.image_path),
+    video_model: demo ? "drawn in this tab" : modelName(s.video_path),
+    image_endpoint: demo ? "" : s.base_url + s.image_path,
+    video_endpoint: demo ? "" : s.base_url + s.video_path,
+    rates_are_defaults: s.image_cost === DEFAULT_IMAGE_COST && s.video_cost === DEFAULT_VIDEO_COST,
+    charged: !demo,
+    clip_unit_seconds: CLIP_SECONDS,
+    max_attempts: MAX_ATTEMPTS_PER_SHOT,
+    reserve_fraction: RESERVE_FRACTION,
   };
   const base = (heroImages + nShots) * b.image_cost + units * b.video_cost;
   b.reserve = round2(base * RESERVE_FRACTION);
   b.total = round2(base + b.reserve);
+  b.seconds = (p.plan && p.plan.shots || []).slice(0, nShots).reduce((a, x) => a + (x.duration || CLIP_SECONDS), 0)
+    || nShots * CLIP_SECONDS;
   return b;
 }
 
@@ -364,6 +433,9 @@ on("POST", "/api/projects/import", async (_m, body) => {
   let p;
   try { p = JSON.parse(new TextDecoder().decode(doc.data)); } catch { throw new ApiError(400, "project.json is not valid JSON"); }
   if (!p.id || !p.intake || !p.plan) throw new ApiError(400, "project.json does not look like a project");
+  // an imported project is hostile input: the only other sanitiser is PUT /intake
+  p.intake.length_shots = shotCount(p.intake.length_shots);
+  if (!ratioOf(p.intake.aspect)) p.intake.aspect = commonAspect(p.hubs) || "16:9";
   // a fresh id so an import never overwrites a project that is already here,
   // and a suffix when the name is already taken so the list stays readable
   const oldId = p.id;
@@ -434,15 +506,23 @@ on("POST", "/api/projects/:pid/hubs", async (m, body) => {
     const thumb = `projects/${p.id}/thumbs/${id}.jpg`;
     await db.putFile(path, prepared.blob);
     await db.putFile(thumb, await thumbnail(prepared.img, prepared.width, prepared.height));
-    const detected = analyseHub(drawToImg(prepared.img, 640), prepared.width, prepared.height);
+    const working = drawToImg(prepared.img, 640);
+    const detected = analyseHub(working, prepared.width, prepared.height);
+    // What the image measurably contains, kept beside the render so the intake
+    // can show it. It is evidence for the designer to read, never prompt text:
+    // see engine/draft.js for why the materials field is not written from it.
+    const measured = measureBrief(working, detected);
     if (prepared.from) {
       notes.push(`${f.name || "that photo"} was ${prepared.from[0]}×${prepared.from[1]} and has been resampled to ${prepared.width}×${prepared.height}. Nothing was cropped; a phone cannot hold a dozen full-size photos in canvas memory.`);
     }
     p.hubs.push({
       id, filename: f.name || `render-${p.hubs.length + 1}.jpg`, path, cls: detected.suggested_class,
-      width: prepared.width, height: prepared.height, detected,
+      width: prepared.width, height: prepared.height, detected, measured,
       camera_faces: null, continuity_group: null,
-      label: (f.name || `render ${p.hubs.length + 1}`).replace(/\.[^.]+$/, ""),
+      // A camera and a stock library both write filenames; neither writes
+      // labels. What is left after the serial numbers is used when it says
+      // something, and what was measured is used when it does not.
+      label: draftLabel(f.name, detected, detected.suggested_class, p.hubs.length + 1),
       materials: "", elements: "",
     });
   }
@@ -485,8 +565,18 @@ on("PUT", "/api/projects/:pid/intake", async (m, body) => {
   const p = await load(m.pid);
   if (!String(body.location || "").trim()) throw new ApiError(400, "location is required; it drives the climate research");
   p.intake = Object.assign(p.intake, body);
-  p.intake.length_shots = Math.max(1, Math.min(30, Number(p.intake.length_shots) || 5));
+  // Rounded, not just clamped: 1.5 shots used to survive this line and then
+  // bill for 1.5 stills against a 2-shot plan.
+  p.intake.length_shots = shotCount(p.intake.length_shots);
   p.intake.seasons = (p.intake.seasons || []).length ? p.intake.seasons : ["summer"];
+  // "Auto" means the shape of the renders themselves, which for a photograph
+  // is usually 3:2 and for a phone 4:3, and it is resolved to a plain "W:H"
+  // here so that nothing downstream has to know the word. A set of renders
+  // that disagree has no single answer, so it falls back to the widest common
+  // choice rather than cropping one of them to suit another.
+  if (p.intake.aspect === "auto" || !ratioOf(p.intake.aspect)) {
+    p.intake.aspect = commonAspect(p.hubs) || leastLossyAspect(p.hubs) || "16:9";
+  }
   p.location_profile = L.profile(p.intake.location);
   p.budget = await estimate(p);
   // Law 6 is crop, never outpaint, so a ratio the renders cannot give up
@@ -502,12 +592,7 @@ on("PUT", "/api/projects/:pid/intake", async (m, body) => {
   // Which ratio would cost least across all of them. A phone camera shoots 4:3
   // and the default is 16:9, so this is the first thing most people meet;
   // telling them to re-render is no use when the source is a photograph.
-  const alternatives = warnings.length
-    ? ["16:9", "9:16", "1:1", "4:5"]
-        .map((a) => ({ aspect: a, worst: Math.max(...p.hubs.map((h) => cropLoss(h.width, h.height, a))) }))
-        .sort((x, y) => x.worst - y.worst)
-        .map((x) => ({ aspect: x.aspect, loss: Math.round(x.worst * 100) }))
-    : [];
+  const alternatives = warnings.length ? rankAspects(p.hubs, p.intake.aspect) : [];
   p.stage = "intake";
   await save(p);
   return { project: p, warnings, alternatives };
@@ -517,7 +602,16 @@ on("POST", "/api/projects/:pid/budget/confirm", async (m) => {
   const p = await load(m.pid);
   p.budget = await estimate(p);
   p.budget.confirmed = true;
-  p.approvals.push({ ts: nowIso(), what: "budget confirmed", detail: { total: p.budget.total } });
+  // What was agreed, frozen. estimate() reruns on every later edit and
+  // overwrites p.budget, so without this there is no record of the rate or the
+  // model the number was confirmed against.
+  p.approvals.push({ ts: nowIso(), what: "budget confirmed", detail: {
+    total: p.budget.total, provider: p.budget.provider,
+    image_model: p.budget.image_model, video_model: p.budget.video_model,
+    image_cost: p.budget.image_cost, video_cost: p.budget.video_cost,
+    hero_images: p.budget.hero_images, stills: p.budget.stills, clip_units: p.budget.clips,
+    rates_are_defaults: p.budget.rates_are_defaults,
+  } });
   await save(p);
   return p.budget;
 });

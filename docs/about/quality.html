@@ -51,6 +51,15 @@
   <p>Image-to-video models animate reliably when there is one clear moving element near camera: an eave, an entrance, a foreground tree, a curtain, a pair of hands. On wide, distant, evenly-detailed elevations, and on interiors with no soft element, they either freeze the texture or invent weather against an explicit instruction not to.</p>
   <p>So after <b>two</b> failed attempts on such a shot the engine stops and recommends cutting it, or re-shooting it dry with no precipitation at all. It does not burn a third attempt, and it will not let a free-text note evade that count.</p>
 </div></section>
+<section><div class="wrap">
+  <h2>The budget, and what it is a budget for</h2>
+  <p class="sub">A total with no model and no rate behind it is a number nobody can check.</p>
+  <p>The gate shows the arithmetic in full: two hero variants per class the film will actually contain, one still per shot, and clips billed in five-second blocks, so a ten-second shot is two blocks and says so. Under it: the reserve, what the reserve is for (a shot that fails QC can be re-shot, and those attempts are not in the lines above), and roughly what a second of finished film costs.</p>
+  <p>It also names the models, because the models are the only thing that makes a rate mean anything. Out of the box the endpoints are Google&rsquo;s <b>Gemini 2.5 Flash Image</b> for the still edit and <b>Kling v2.5 Pro</b> for image-to-video, both reached through Freepik, and both editable in Settings. Change the endpoint and the budget names the new model, because it reads the name from the path rather than asserting one.</p>
+  <div class="note warn"><strong>The rates this app ships with are placeholders, not quotes.</strong> Nobody&rsquo;s contract is in this repository and no price list is fetched, so until you enter your own rate the panel says as much and the total is arithmetic rather than a price. The unit counts are exact either way. On the demo generator nothing is charged at all, and the figures are there to show the shape of the bill before you ever pay one.</p></div>
+  <p>What was agreed is frozen at the moment you confirm: the rate, the provider and the model go into the project record, so a project can still be audited after Settings has moved on.</p>
+</div></section>
+
 <footer><div class="wrap">
   <p><a href="https://github.com/argaurshar/Images-to-video-with-ref-video">Source on GitHub</a> · <a href="https://github.com/argaurshar/Images-to-video-with-ref-video/blob/claude/app-md-review-enhance-its81i/SPEC.md">The full specification</a></p>
   <p>Screenshots show the app running on its demo generator with synthetic test renders, so the buildings are placeholder shapes. The interface, the measurements and the numbers are real.</p>

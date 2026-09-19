@@ -6,6 +6,59 @@ export const RES = { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1
 export const RATIO = { "16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1, "4:5": 0.8 };
 export const OUTPUT_FPS = 30;
 
+/** An aspect is a "W:H" string, and it is no longer only one of four presets:
+    a film can take the shape of the renders it was made from, which for a
+    photograph is usually 3:2 and for a phone 4:3. Everything downstream reads
+    the ratio through here rather than through a table with four keys in it. */
+export function ratioOf(aspect) {
+  if (typeof aspect === "number" && aspect > 0) return aspect;
+  const s = String(aspect || "");
+  if (RATIO[s]) return RATIO[s];
+  const m = s.match(/^\s*(\d+(?:\.\d+)?)\s*[:x/]\s*(\d+(?:\.\d+)?)\s*$/i);
+  if (m) { const r = Number(m[1]) / Number(m[2]); if (isFinite(r) && r > 0) return r; }
+  return null;
+}
+
+/** The frame for a ratio, held to a 1080 short edge and even on both sides.
+    This reproduces every entry of RES exactly, so nothing about the four
+    presets changes: 16:9 is still 1920×1080 and 4:5 is still 1080×1350. */
+export function resFor(aspect, scale = 1) {
+  const r = ratioOf(aspect) || RATIO["16:9"];
+  const [w, h] = r >= 1 ? [1080 * r, 1080] : [1080, 1080 / r];
+  const even = (x) => Math.max(2, Math.round(x * scale) & ~1);
+  return [even(w), even(h)];
+}
+
+/** The ratio a set of renders is already in, or null when they disagree by
+    more than a hair. This is what "match my renders" resolves to. */
+export function commonAspect(hubs) {
+  const ratios = (hubs || []).filter((h) => h.width && h.height).map((h) => h.width / h.height);
+  if (!ratios.length) return null;
+  const lo = Math.min(...ratios), hi = Math.max(...ratios);
+  if (hi - lo > 0.04) return null;                     // mixed shapes: no single answer
+  const r = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+  return ratioName(r);
+}
+
+/** A ratio as the tidiest "W:H" that means it. A photograph's 1.4995 is 3:2,
+    and anything that matches nothing becomes its own exact fraction rather
+    than being rounded into a preset it is not. */
+export function ratioName(r) {
+  const known = [["16:9", 16 / 9], ["9:16", 9 / 16], ["1:1", 1], ["4:5", 0.8], ["3:2", 1.5], ["2:3", 2 / 3],
+    ["4:3", 4 / 3], ["3:4", 0.75], ["5:4", 1.25], ["21:9", 21 / 9], ["2:1", 2], ["1:2", 0.5]];
+  for (const [name, v] of known) if (Math.abs(r - v) < 0.02) return name;
+  // reduce the measured ratio to a small integer pair rather than inventing one
+  let best = null;
+  for (let h = 1; h <= 32; h++) {
+    const w = Math.round(r * h);
+    if (!w) continue;
+    const err = Math.abs(r - w / h);
+    if (!best || err < best.err - 1e-9) best = { err, name: `${w}:${h}` };
+    if (err < 0.004) break;
+  }
+  return best ? best.name : "16:9";
+}
+
 export function canvasOf(w, h) {
   const c = document.createElement("canvas");
   c.width = Math.max(2, Math.round(w) & ~1);
@@ -16,7 +69,7 @@ export function canvasOf(w, h) {
 /** Law 6: crop, never outpaint. Returns the source rectangle that fills the
     target ratio from the centre. */
 export function cropRect(sw, sh, aspect) {
-  const want = RATIO[aspect] || sw / sh;
+  const want = ratioOf(aspect) || sw / sh;
   const have = sw / sh;
   if (Math.abs(have - want) < 1e-3) return { x: 0, y: 0, w: sw, h: sh };
   if (have > want) { const w = Math.round(sh * want); return { x: Math.round((sw - w) / 2), y: 0, w, h: sh }; }

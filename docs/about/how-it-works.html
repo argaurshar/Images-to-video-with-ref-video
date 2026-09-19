@@ -24,13 +24,20 @@
   <h2>1. Intake</h2>
   <figure><img src="img/intake.png" alt="The intake screen: uploaded renders with detected properties, and the project questionnaire">
     <figcaption>Upload one to eight renders. The app detects whether each is exterior or interior along with its light state, and you name the actual finishes so prompts use your words rather than invented ones. Stating which way an exterior camera faces is what puts the sun on the correct side of the building.</figcaption></figure>
+  <h3>What is filled in for you, and the one field that never is</h3>
+  <p>A file arrives called <code>imgi_290_hampi-bazaar-street-entry-ticket-price.jpg</code> and that is not a label, so the serial numbers and scraper prefixes are stripped and what is left becomes the caption. If nothing readable is left, the label comes from what was measured: <i>exterior 2 &middot; daylight</i>.</p>
+  <p><b>Fixed elements to protect</b> fills in with one press. These are geometry, which is the thing the engine protects rather than changes, so a measured fact is safe to state: where the openings sit, the roofline, the planting, the road. When the openings form a plain regular row they are counted and the count is offered; a screen of battens or a balustrade is not counted, because a number you then have to go and check is worse than no number.</p>
+  <p><b>Materials and finishes</b> is the one field the engine will not write, and the reason is worth knowing. That text is dropped verbatim into every prompt after the words <i>Materials, by name:</i>. There is no white balance in a browser: a white wall at golden hour measures as warm tan, the same wall in sun and shade measures as two different colours, and in a street photograph the colour comes off the awnings rather than the plaster. Writing any of that into a field the generator treats as fact would fight the film&rsquo;s whole job, which is to change the light. So instead the colours it measured are shown as swatches, labelled as what they are, and the finish vocabulary is offered as chips: tap <i>smooth render</i>, <i>standing seam metal</i>, <i>black steel windows</i> and it is your word that reaches the prompt. Leave it empty and every prompt says &ldquo;the materials exactly as rendered&rdquo;, which is safe and vague. Either is honest. A guess would not be.</p>
+  <p>Whatever you write, the prompt now ends both lists with <i>and everything else exactly as rendered</i>. A list of five things otherwise reads as permission to take liberties with the sixth.</p>
   <h3>What the questionnaire changes</h3>
   <table>
     <tr><th>You choose</th><th>What it drives</th></tr>
     <tr><td>Location</td><td>Climate, hemisphere, vegetation, wet and snow months, and the sun path. Required, because generic prompts give generic results.</td></tr>
     <tr><td>Orientation</td><td>Which side the sun falls on, per shot and per time of day.</td></tr>
     <tr><td>End use</td><td>Defaults. Planning consultation turns people off, restrains the weather and puts the disclaimer on every frame.</td></tr>
-    <tr><td>Design intents</td><td>The three things you most want the client to notice. Each becomes a shot. A time word inside one sets that shot&rsquo;s time.</td></tr>
+    <tr><td>Design intents</td><td>The three things you most want the client to notice. Each becomes a shot, and the sentence is now carried into that shot&rsquo;s prompt as what the shot is for. A time word inside one sets that shot&rsquo;s time. An intent about a room will only ever land on an interior shot.</td></tr>
+    <tr><td>Length</td><td>From 5 seconds, which is one shot, up to 70 and beyond by custom. Fades, title cards and the lower third are a proportion of the film rather than a fixed number of seconds, so a 5-second film is a short film instead of a broken long one.</td></tr>
+    <tr><td>Shape of the film</td><td><b>Auto</b> takes the ratio your renders are already in, so nothing is cropped: photographs come in at 3:2, a phone at 4:3, and the film comes out the same. The four presets are still there when the destination decides the shape.</td></tr>
     <tr><td>Interior emphasis</td><td>Preferred times, artificial lighting state and the room cue baked into interior shots.</td></tr>
   </table>
 </div></section>

@@ -241,3 +241,20 @@ label.f.check { flex-direction:row; align-items:center; gap:8px; min-width:0; }
   border:1px solid #8a4a4a; background:#3a1e1e; color:#f3d9d9; font:inherit; }
 .kv.check .tag { margin-right:6px; }
 .fatal .dismiss { margin-left:0; min-width:38px; padding:8px 12px; font-size:18px; line-height:1; }
+
+/* The brief helpers on an intake tile: finish vocabulary to tap, element
+   phrases to tick, and the colours measured in the image as evidence. */
+.suggest { margin:-4px 0 10px; }
+.suggest > summary, .suggest details > summary { cursor:pointer; font-size:12px; opacity:.75; padding:6px 0; list-style:none; }
+.suggest > summary::before, .suggest details > summary::before { content:"+ "; opacity:.7; }
+.suggest[open] > summary::before, .suggest details[open] > summary::before { content:"\2212 "; }
+.suggest > summary:hover, .suggest details > summary:hover { opacity:1; color:#d9b46a; }
+.suggest .muted { margin:6px 0 2px; }
+.suggest .grp { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:6px 0; }
+.suggest .grp .lbl { font-size:11px; text-transform:uppercase; letter-spacing:.06em; opacity:.6; min-width:74px; }
+.suggest .chip.add { font-size:12px; padding:6px 10px; min-height:32px; cursor:pointer; }
+.suggest .chip.add:hover { border-color:#d9b46a; }
+.swatches { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; font-size:12px; }
+.swatches .sw { display:inline-flex; align-items:center; gap:6px; opacity:.9; }
+.swatches .sw i { width:14px; height:14px; border-radius:3px; border:1px solid rgba(255,255,255,.25); display:inline-block; }
+@media (max-width: 760px) { .suggest .chip.add { min-height:38px; } }
