@@ -29,6 +29,7 @@
     <li><b>Name the finishes, state the location, approve the plan</b><p>The plan is deterministic, so the same intake always gives the same shot list and you can predict what a change will do.</p></li>
     <li><b>Generate, measure, sequence, render</b><p>Out of the box it uses a demo generator that costs nothing and still exercises every gate, so you can take a project all the way to a finished film before deciding whether to spend anything.</p></li>
   </ol>
+    <div class="note"><strong>On a laptop there is no photo library for a web page to open.</strong> A browser can open the file dialog and nothing else, so if your pictures live somewhere a dialog cannot reach, use one of the other two ways in: drag the images onto the page, or copy one anywhere and paste it with Ctrl&nbsp;+&nbsp;V, or &#8984;V on a Mac. Both skip the dialog and any filter it applies, which is also how a JPEG with no filename extension gets in.</div>
   <div class="note"><strong>Everything stays on your machine.</strong> Projects, renders, generated stills, clips and films live in this browser&rsquo;s own storage. No server ever sees them. That is the good news and the catch: clearing site data for the address erases the lot, and another device will not see your projects. Download the film and the stills pack when a project is done, or export the whole project as one ZIP from the project list and import it on any machine.</div>
 </div></section>
 
@@ -37,7 +38,7 @@
   <p class="sub">Same address, same tool. Open it on the phone and work from the camera roll.</p>
   <ol class="steps">
     <li><b>Open the link and create a project</b><p>No app, no sign-in. The projects live in the phone&rsquo;s browser.</p></li>
-    <li><b>Choose photos</b><p>That button opens the gallery and takes JPEGs straight from the camera roll, several at once. <b>Take a photo</b> opens the camera instead, which is the one to use on site.</p></li>
+    <li><b>Choose photos</b><p>That button opens the photo library and takes JPEGs straight from the camera roll, several at once. <b>Take a photo</b> opens the camera instead, which is the one to use on site. The button asks the phone for <code>image/*</code> and nothing more specific, because that is the one value every phone maps to its gallery: a longer list of formats sends some phones to the file manager instead, which is how a gallery button ends up unable to reach the gallery.</p></li>
     <li><b>Work through the stages by tapping</b><p>The brief is tappable options rather than a wall of dropdowns, the shot plan scrolls sideways inside its own panel, and each clip becomes its own block with its measurements under it.</p></li>
   </ol>
   <div class="note"><strong>JPEG, PNG and WebP are read directly.</strong> A JPEG is a JPEG whatever produced it: baseline or progressive, colour or greyscale, any chroma subsampling, and with or without a filename extension. The decoder decides, not the type header, because a gallery can hand a browser a perfectly good photo labelled as raw bytes with no name at all. A photo carrying an orientation tag is turned upright on the way in, so a picture taken with the phone held sideways is not a film shot sideways.</div>

@@ -587,22 +587,32 @@ async function rIntake() {
     <h2>Intake</h2><p class="lead">Three things: the renders, the brief, and the site. Everything downstream is derived from these, so a minute here saves a regeneration later.</p>
     <div class="card">
       <div class="sect"><h3><span class="n">1</span>Renders</h3>
-        <p class="muted">One to eight renders of one project: exterior angles, interior rooms, or both. On a phone, <b>Choose photos</b> opens your gallery. <b>JPEG</b>, PNG and WebP are all read directly. Name the finishes on each; the prompts use your words, never invented ones. State which way the camera faces on exteriors so the sun comes from the right side. Tap a render to see it full size.</p>
+        <p class="muted">One to eight renders of one project: exterior angles, interior rooms, or both. ${isSmallScreen()
+          ? "<b>Choose photos</b> opens the photo library and takes several at once. <b>Take a photo</b> opens the camera, which is the one to use on site."
+          : `There is no photo library for a web page to open on a laptop, so <b>Choose photos</b> opens the file dialog. When your pictures are somewhere that dialog will not reach, drag them onto this page or paste one with ${/Mac/i.test(navigator.userAgent) ? "<b>⌘V</b>" : "<b>Ctrl&nbsp;+&nbsp;V</b>"}; both skip the dialog and whatever it filters out.`} <b>JPEG</b>, PNG and WebP are all read directly. Name the finishes on each; the prompts use your words, never invented ones. State which way the camera faces on exteriors so the sun comes from the right side. Tap a render to see it full size.</p>
         <div class="dropzone" id="drop">
           <div class="pickers">
             <button type="button" class="btn" id="pick_library">Choose photos</button>
-            <button type="button" class="btn secondary" id="pick_camera">Take a photo</button>
+            ${isSmallScreen() ? `<button type="button" class="btn secondary" id="pick_camera">Take a photo</button>` : ""}
           </div>
-          <p class="muted droptip">or drop files here</p>
+          <p class="muted droptip">or drop files here, or paste one</p>
           <p class="muted formats">JPEG, PNG and WebP. HEIC from an iPhone works in Safari.</p>
           <!-- The inputs are moved off screen rather than given display:none.
                Safari will not open a file picker for an input that is not
                rendered, whether it is clicked through a label or by script, so
                hiding one that way is how an upload button silently does
                nothing. No capture attribute on the first: that is what makes a
-               phone offer the photo library. The second forces the camera. -->
-          <input type="file" id="hubfiles" class="visually-hidden" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" tabindex="-1" aria-hidden="true">
-          <input type="file" id="hubcamera" class="visually-hidden" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" tabindex="-1" aria-hidden="true">
+               phone offer the photo library. The second forces the camera.
+
+               accept is exactly image/* and nothing else. A phone decides which
+               app to open from this one value: plain image/* maps to the photo
+               library, and a list with types the system does not recognise,
+               image/heic among them, drops it back to the file manager, which
+               is a gallery upload that cannot reach the gallery. Nothing is
+               lost by being brief, because what a file actually is gets decided
+               by decoding it, not by its type. -->
+          <input type="file" id="hubfiles" class="visually-hidden" multiple accept="image/*" tabindex="-1" aria-hidden="true">
+          ${isSmallScreen() ? `<input type="file" id="hubcamera" class="visually-hidden" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">` : ""}
         </div>
         <div class="grid" style="margin-top:14px">${hubs || ""}</div>
       </div>
@@ -675,6 +685,7 @@ async function rIntake() {
   // would hand the upload an empty list.
   const wire = (btnId, inputId) => {
     const btn = el(btnId), input = el(inputId);
+    if (!btn || !input) return;   // the camera pair only exists on a touch device
     btn.onclick = () => input.click();
     input.onchange = () => {
       const picked = [...input.files];
@@ -686,6 +697,19 @@ async function rIntake() {
   wire("pick_camera", "hubcamera");
   drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); }; drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); upload(e.dataTransfer.files); };
+  // A laptop has no photo library for a web page to open, so the other two ways
+  // in carry the weight there: drag the images onto the page, or copy one from
+  // anywhere at all and paste it here. Set on the document because a paste goes
+  // to whatever has focus, which is rarely the dropzone.
+  document.onpaste = e => {
+    if (!el("drop") || !e.clipboardData) return;
+    const cd = e.clipboardData;
+    const files = cd.files && cd.files.length ? [...cd.files]
+      : [...(cd.items || [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault();
+    upload(files);
+  };
   el("main").querySelectorAll("[data-view]").forEach(img => img.onclick = () => { const h = hub(img.dataset.view); lightbox(h.path, `${h.label || h.filename} · ${h.width}×${h.height}`); });
   el("main").querySelectorAll("[data-h]").forEach(inp => inp.onchange = () => busy(async () => {
     pendingIntake = readIntakeForm();
