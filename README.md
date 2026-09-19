@@ -23,9 +23,14 @@ than tried a third time.
 
 **https://argaurshar.github.io/Images-to-video-with-ref-video/**
 
-That link is the working app, not a description of one. The whole engine is the
-page: the planner, the image analysis, the fidelity audit, the clip
-measurements and the final render all run in the tab. No install, no account,
+That link is the working app, not a description of one. It opens on one
+screen that asks two things: your images, and the weather you want to show —
+sunny, rainy, winter, autumn, spring, or as it is now. One button then runs the
+whole pipeline without asking anything else, and the nine-stage studio is one
+link away for the films worth directing shot by shot.
+
+The whole engine is the page: the planner, the image analysis, the fidelity
+audit, the clip measurements and the final render all run in the tab. No install, no account,
 no server, and nothing you upload leaves your machine. It has no dependencies
 at all: Canny, connected components, the frame aligner, the ZIP writer and the
 video encoder are all in `docs/app/engine/`, so there is no CDN to go down.

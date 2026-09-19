@@ -258,3 +258,45 @@ label.f.check { flex-direction:row; align-items:center; gap:8px; min-width:0; }
 .swatches .sw { display:inline-flex; align-items:center; gap:6px; opacity:.9; }
 .swatches .sw i { width:14px; height:14px; border-radius:3px; border:1px solid rgba(255,255,255,.25); display:inline-block; }
 @media (max-width: 760px) { .suggest .chip.add { min-height:38px; } }
+
+/* ------------------------------------------------------------------ simple
+   One screen: images, a season, a button. The studio chrome is hidden and the
+   type is bigger, because this view is for someone who has not used the app
+   before and should not have to learn it. */
+body.simplemode .steps, body.simplemode .next { display:none; }
+.simple { max-width:780px; margin:0 auto; padding:8px 0 60px; }
+.simple h1 { font-size:30px; line-height:1.15; margin:18px 0 6px; }
+.simple .lead { font-size:15px; opacity:.8; margin:0 0 22px; }
+.simple .step { display:flex; gap:16px; align-items:flex-start; }
+.simple .step > div:last-child { flex:1; min-width:0; }
+.simple .step h3 { margin:2px 0 12px; font-size:17px; }
+.simple .stepnum { width:28px; height:28px; border-radius:50%; background:#d9b46a; color:#191919;
+  font-weight:700; display:grid; place-items:center; flex:0 0 28px; }
+.looks { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; }
+.look { text-align:left; padding:12px 14px; border-radius:10px; border:1px solid #2e2e33; background:#17171a;
+  color:inherit; font:inherit; cursor:pointer; display:block; min-height:62px; }
+.look b { display:block; font-size:15px; margin-bottom:3px; }
+.look span { font-size:12px; opacity:.65; }
+.look:hover { border-color:#4a4a52; }
+.look.on { border-color:#d9b46a; background:#221d13; }
+.simple .go { text-align:center; margin:26px 0 8px; }
+.btn.big { font-size:17px; padding:15px 34px; border-radius:10px; }
+.thumbs { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
+.thumb { position:relative; width:110px; height:74px; border-radius:8px; overflow:hidden; border:1px solid #2e2e33; }
+.thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.thumb .x { position:absolute; top:3px; right:3px; width:22px; height:22px; border-radius:50%; border:0;
+  background:rgba(0,0,0,.65); color:#fff; cursor:pointer; line-height:1; font-size:14px; }
+.prog { padding:22px; border:1px solid #2e2e33; border-radius:12px; background:#17171a; }
+.prog .bar { height:6px; border-radius:3px; background:#26262b; overflow:hidden; margin-bottom:14px; }
+.prog .bar i { display:block; height:100%; background:#d9b46a; transition:width .4s ease; }
+.prog b { font-size:16px; display:block; }
+.prog .small { font-size:12px; margin-top:10px; }
+.filmlist { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
+.simple .foot { margin-top:30px; font-size:12px; line-height:1.7; }
+.simple .foot a { color:#d9b46a; }
+@media (max-width: 760px) {
+  .simple h1 { font-size:24px; }
+  .simple .step { gap:10px; }
+  .looks { grid-template-columns:1fr 1fr; }
+  .btn.big { width:100%; }
+}

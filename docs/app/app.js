@@ -17,6 +17,7 @@ import { fileURL, quota, persist } from "./engine/db.js";
 import { probe } from "./engine/recorder.js";
 import { RES, resFor, commonAspect, ratioOf } from "./engine/compose.js";
 import { VOCAB, elementSuggestions } from "./engine/draft.js";
+import { profile as locationProfile } from "./engine/location.js";
 
 // The module evaluated, which is what the shell's watchdog is waiting to hear.
 // Whether the first screen draws is a separate signal, set after init resolves.
@@ -37,6 +38,18 @@ let view = "intake";   // current stage view
 let health = {};
 let pendingIntake = null;   // questionnaire held across a re-render
 let settings = null;
+/* Two front doors to the same engine. Simple is the default because most of
+   the time the answer to "what do you want" is a film, and the studio is one
+   link away for the times it is not. */
+let mode = (() => { try { return localStorage.getItem("archviz-mode") || "simple"; } catch { return "simple"; } })();
+function setMode(m) {
+  mode = m;
+  try { localStorage.setItem("archviz-mode", m); } catch { /* private window */ }
+  if (m === "simple") P = null;
+  renderChrome();
+  renderAll();
+}
+window.setMode = setMode;
 
 // ------------------------------------------------------------------ helpers
 async function api(path, opts = {}) {
@@ -159,6 +172,13 @@ function locked(stage) { const r = readiness()[stage]; return r && r.s === "lock
 // ------------------------------------------------------------------ chrome
 function renderChrome() {
   const bar = el("projbar");
+  if (mode === "simple") {
+    bar.innerHTML = `<button class="btn small secondary" onclick="openSettings()">Settings</button>`;
+    el("steps").innerHTML = ""; el("next").innerHTML = ""; el("spend").innerHTML = "";
+    document.body.classList.add("simplemode");
+    return;
+  }
+  document.body.classList.remove("simplemode");
   if (P) {
     bar.innerHTML = `<span class="crumb"><button class="btn small secondary" id="projects">Projects</button><b>${esc(P.name)}</b><span class="tag">${esc(P.stage)}</span></span>
       <span class="muted">generator: <b>${esc((settings && settings.provider) || health.provider || "?")}</b></span>
@@ -341,6 +361,11 @@ async function init() {
 }
 async function renderAll() {
   const m = el("main");
+  if (mode === "simple") {
+    if (P && P.deliverables && P.deliverables.film) await rDone(); else await rSimple();
+    window.scrollTo({ top: 0 });
+    return;
+  }
   if (!P) { await rHome(); return; }
   await ({ intake: rIntake, reference: rReference, plan: rPlan, hero: rHero, board: rBoard, clips: rClips, sequence: rSequence, branding: rBranding, render: rRender })[view]();
   window.scrollTo({ top: 0 });
@@ -435,6 +460,299 @@ async function startSample() {
   toast("two sample renders drawn and named — press Save intake to carry on");
 }
 
+/* ------------------------------------------------------------------ simple
+
+   The whole app in one screen: photos in, a season, a film out.
+
+   Everything the studio view asks for is either answered from the photos, from
+   where this browser is, or from a default that a small practice would pick
+   anyway. The nine stages still run underneath, in order, with every gate
+   satisfied automatically — this is a different front door to the same engine,
+   not a second engine.
+
+   The one thing that is never automatic is spending money. On the demo
+   generator the film is free, so the button just makes it. On a paid provider
+   the button says what it will cost and pressing it is the confirmation. */
+
+const LOOKS = [
+  ["sunny", "Sunny", "clear light, long shadows", { seasons: ["summer"], mood: "warm" }],
+  ["rainy", "Rainy", "wet ground, heavy sky", { seasons: ["monsoon"], mood: "moody" }],
+  ["winter", "Winter", "bare trees, low light", { seasons: ["winter"], mood: "serene" }],
+  ["autumn", "Autumn", "turning leaves, warm haze", { seasons: ["autumn"], mood: "warm" }],
+  ["spring", "Spring", "fresh planting, soft light", { seasons: ["spring"], mood: "serene" }],
+  ["normal", "As it is now", "the season it is at the site today", { seasons: null, mood: "serene" }],
+];
+
+/** Where this browser is, which is what the engine needs for hemisphere, sun
+    path and what grows there. Asked of the clock rather than of the designer;
+    it is shown on screen and can be corrected in one tap. */
+function placeFromBrowser() {
+  try {
+    // The city out of the timezone, on its own: the engine's location table
+    // matches city names, and "America" as a region tells it nothing.
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const city = tz.split("/").pop().replace(/_/g, " ").trim();
+    return city && city.length > 2 ? city : "San Jose, California";
+  } catch { return "San Jose, California"; }
+}
+
+/** The season it is right now where the building is. "As it is now" has to
+    mean something, and the month plus the hemisphere is the honest answer. */
+function seasonNow(hemisphere) {
+  const m = new Date().getMonth();                       // 0 = January
+  const north = ["winter", "winter", "spring", "spring", "spring", "summer",
+    "summer", "summer", "autumn", "autumn", "autumn", "winter"][m];
+  if (hemisphere !== "southern") return north;
+  return { winter: "summer", spring: "autumn", summer: "winter", autumn: "spring" }[north];
+}
+
+let simplePicked = "sunny";
+let simplePlace = null;
+
+async function rSimple() {
+  const list = await api("/api/projects").catch(() => []);
+  const done = list.filter(p => p.stage === "delivered");
+  simplePlace = simplePlace || placeFromBrowser();
+  await setHTML(el("main"), `
+    <div class="simple">
+      <h1>Turn your renders into a film</h1>
+      <p class="lead">Add your images, pick the weather you want to show, and press the button. Everything else is decided for you.</p>
+
+      <div class="card step">
+        <div class="stepnum">1</div>
+        <div>
+          <h3>Your images</h3>
+          <div class="dropzone" id="drop">
+            <div class="pickers">
+              <button type="button" class="btn" id="pick_library">Choose photos</button>
+              ${isSmallScreen() ? `<button type="button" class="btn secondary" id="pick_camera">Take a photo</button>` : ""}
+            </div>
+            <p class="muted droptip">or drop them here, or paste one</p>
+            <p class="muted formats">One to eight images of one project. JPEG, PNG and WebP.</p>
+            <input type="file" id="hubfiles" class="visually-hidden" multiple accept="image/*" tabindex="-1" aria-hidden="true">
+            ${isSmallScreen() ? `<input type="file" id="hubcamera" class="visually-hidden" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">` : ""}
+          </div>
+          <div class="thumbs" id="thumbs"></div>
+        </div>
+      </div>
+
+      <div class="card step">
+        <div class="stepnum">2</div>
+        <div>
+          <h3>What weather do you want to show?</h3>
+          <div class="looks" id="looks">${LOOKS.map(([k, name, sub]) =>
+            `<button type="button" class="look ${k === simplePicked ? "on" : ""}" data-look="${k}"><b>${name}</b><span>${sub}</span></button>`).join("")}</div>
+        </div>
+      </div>
+
+      <div class="go">
+        <button class="btn big" id="makefilm" disabled>Make the film</button>
+        <p class="muted" id="goline">Add at least one image first.</p>
+      </div>
+
+      ${done.length ? `<h3 style="margin-top:34px">Your films</h3>
+        <div class="filmlist">${done.map(p => `<div class="pcard"><h4>${esc(p.name)}</h4>
+          <div class="meta">${esc(new Date(p.updated_at).toLocaleDateString())}</div>
+          <div class="row"><button class="btn small" data-watch="${p.id}">Watch</button><button class="btn small secondary" data-export2="${p.id}">Download</button><button class="btn small danger" data-del2="${p.id}">Delete</button></div></div>`).join("")}</div>` : ""}
+
+      <p class="muted foot">The film is put together in this tab; nothing is uploaded anywhere.
+        Weather and sun path come from <b id="placename">${esc(simplePlace)}</b> <a href="#" id="changeplace">change</a>.
+        <a href="#" id="tostudio">Open the full studio</a> if you want to direct every shot yourself.</p>
+    </div>`);
+
+  // the pickers, exactly as the studio wires them
+  const files = [];
+  const draw = () => {
+    el("thumbs").innerHTML = files.map((f, i) =>
+      `<div class="thumb"><img src="${URL.createObjectURL(f)}" alt=""><button class="x" data-drop="${i}">×</button></div>`).join("");
+    el("thumbs").querySelectorAll("[data-drop]").forEach(b => b.onclick = () => { files.splice(+b.dataset.drop, 1); draw(); });
+    const n = files.length;
+    el("makefilm").disabled = !n;
+    el("goline").textContent = n ? `${n} image${n === 1 ? "" : "s"} · about ${Math.round(shotsFor(n) * 5)} seconds of film` : "Add at least one image first.";
+  };
+  const take = (picked) => { for (const f of picked) if (files.length < 8) files.push(f); draw(); };
+  const wire = (btnId, inputId) => {
+    const btn = el(btnId), input = el(inputId);
+    if (!btn || !input) return;
+    btn.onclick = () => input.click();
+    input.onchange = () => { const picked = [...input.files]; input.value = ""; take(picked); };
+  };
+  wire("pick_library", "hubfiles");
+  wire("pick_camera", "hubcamera");
+  const drop = el("drop");
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); take([...e.dataTransfer.files]); };
+  document.onpaste = e => {
+    if (!el("drop") || !e.clipboardData) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    const cd = e.clipboardData;
+    const got = cd.files && cd.files.length ? [...cd.files]
+      : [...(cd.items || [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+    if (!got.length) return;
+    e.preventDefault();
+    take(got);
+  };
+  draw();
+
+  el("looks").querySelectorAll(".look").forEach(b => b.onclick = () => {
+    el("looks").querySelectorAll(".look").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    simplePicked = b.dataset.look;
+  });
+  el("changeplace").onclick = (e) => {
+    e.preventDefault();
+    const v = prompt("Where is the building? This sets the sun path, the climate and what grows there.", simplePlace);
+    if (v && v.trim()) { simplePlace = v.trim(); el("placename").textContent = simplePlace; }
+  };
+  el("tostudio").onclick = (e) => { e.preventDefault(); setMode("studio"); };
+  el("makefilm").onclick = () => makeFilm(files);
+  el("main").querySelectorAll("[data-watch]").forEach(b => b.onclick = () => busy(async () => {
+    P = await api(`/api/projects/${b.dataset.watch}`); await rDone();
+  }));
+  el("main").querySelectorAll("[data-export2]").forEach(b => b.onclick = () => busy(async () => {
+    const r = await api(`/api/projects/${b.dataset.export2}/export`); download(r.blob, r.filename);
+  }, "packing the project…"));
+  el("main").querySelectorAll("[data-del2]").forEach(b => b.onclick = () => busy(async () => {
+    if (!confirm("Delete this film and everything in it?")) return;
+    await api(`/api/projects/${b.dataset.del2}`, { method: "DELETE" });
+    await rSimple();
+  }));
+}
+
+/** Enough shots to read as a film, without asking. One image carries three
+    looks comfortably; eight would be a slideshow if every one got three. */
+function shotsFor(n) { return Math.max(3, Math.min(9, n * 3)); }
+
+const STEPS = [
+  "Reading your images",
+  "Working out the shots",
+  "Setting the look",
+  "Making every frame",
+  "Filming each shot",
+  "Cutting it together",
+];
+
+function showProgress(i, detail) {
+  const box = el("simpleprogress");
+  if (!box) return;
+  box.innerHTML = `<div class="prog">
+    <div class="bar"><i style="width:${Math.round(((i + 0.5) / STEPS.length) * 100)}%"></i></div>
+    <b>${esc(STEPS[i] || "Almost there")}</b>
+    <span class="muted">${esc(detail || "")}</span>
+    <p class="muted small">Keep this page in front while it works. The film is recorded in real time, so it takes about as long as it runs.</p>
+  </div>`;
+}
+
+/** Every stage of the engine, in order, with the gates answered. */
+async function makeFilm(files) {
+  const look = LOOKS.find(l => l[0] === simplePicked) || LOOKS[0];
+  await setHTML(el("main"), `<div class="simple"><h1>Making your film</h1><div id="simpleprogress"></div><div id="jobbar"></div></div>`);
+  try {
+    showProgress(0, `${files.length} image${files.length === 1 ? "" : "s"}`);
+    await persist();
+    const name = `${look[1]} film`;
+    P = await api("/api/projects", { body: { name } });
+    const fd = new FormData();
+    files.forEach(f => fd.append("files", f));
+    const up = await api(`/api/projects/${P.id}/hubs`, { body: fd });
+    P = up.project;
+    if (up.refused && up.refused.length) toast(up.refused.join(" "), true);
+    if (!P.hubs.length) throw new Error("none of those files could be read as an image");
+
+    showProgress(1, "sun path, seasons and the order of the shots");
+    // the engine's own reading of the place, so "as it is now" is the season
+    // it actually is there rather than the season it is here
+    const seasons = look[3].seasons || [seasonNow(locationProfile(simplePlace).hemisphere)];
+    P = (await api(`/api/projects/${P.id}/intake`, { method: "PUT", body: {
+      route: "brief", aspect: "auto", length_shots: shotsFor(P.hubs.length),
+      seasons, time_arc: "dawn_to_night", single_time: "golden_hour",
+      mood: look[3].mood, people: "none", project_type: "",
+      location: simplePlace, project_stage: "design_development", end_use: "client_presentation",
+      interior_emphasis: null, design_intents: ["", "", ""],
+      project_name: name, practice_name: "",
+    } })).project;
+
+    // the only gate a person should ever be asked about is money, and on the
+    // demo generator there is none to ask about
+    const s = await api("/api/settings");
+    if (s.provider !== "demo" && !confirm(`This film will cost about ${P.budget.total.toFixed(2)} at your rates for ${P.budget.stills + P.budget.hero_images} images and ${P.budget.clips} clips. Go ahead?`)) {
+      await api(`/api/projects/${P.id}`, { method: "DELETE" });
+      return rSimple();
+    }
+    await api(`/api/projects/${P.id}/budget/confirm`, { method: "POST" });
+    await api(`/api/projects/${P.id}/plan/generate`, { method: "POST" });
+    await api(`/api/projects/${P.id}/plan/approve`, { method: "POST" });
+
+    showProgress(2, "two looks per kind of shot, then the better one");
+    await api(`/api/projects/${P.id}/heroes/generate`, { method: "POST" });
+    P = await api(`/api/projects/${P.id}`);
+    for (const cls of [...new Set(P.hubs.map(h => h.cls))]) {
+      const best = P.heroes.filter(h => h.cls === cls)
+        .sort((a, b) => (b.audit ? b.audit.structure_similarity : 0) - (a.audit ? a.audit.structure_similarity : 0))[0];
+      if (best) await api(`/api/projects/${P.id}/heroes/${best.id}/choose`, { method: "POST" });
+    }
+
+    showProgress(3, "one frame per shot");
+    await api(`/api/projects/${P.id}/stills/generate`, { method: "POST" });
+    await api(`/api/projects/${P.id}/stills/approve_all`, { method: "POST" });
+
+    showProgress(4, "this is the slow part");
+    await api(`/api/projects/${P.id}/clips/generate`, { method: "POST" });
+    P = await api(`/api/projects/${P.id}`);
+    let failed = 0;
+    for (const c of P.clips) {
+      if (c.status === "approved") continue;
+      if (!c.qc || !c.qc.passed) failed++;
+      await api(`/api/projects/${P.id}/clips/${c.id}/approve`, { method: "POST" }).catch(() => {});
+    }
+
+    showProgress(5, "order, titles, sound and the render");
+    await api(`/api/projects/${P.id}/sequence/suggest`);
+    await api(`/api/projects/${P.id}/render?crops=&scale=${autoScaleFor(P)}`, { method: "POST" });
+    P = await api(`/api/projects/${P.id}`);
+    await rDone(failed);
+  } catch (e) {
+    console.error(e);
+    await setHTML(el("main"), `<div class="simple"><h1>That did not finish</h1>
+      <div class="note warn"><b>${esc(e.message || String(e))}</b></div>
+      <p class="muted">Nothing was lost: ${P ? "the project is saved and the full studio can carry on from where this stopped." : "no project was created."}</p>
+      <div class="row" style="margin-top:14px"><button class="btn" id="again">Start again</button>${P ? `<button class="btn secondary" id="studio2">Open it in the studio</button>` : ""}</div></div>`);
+    el("again").onclick = () => busy(async () => { P = null; await rSimple(); });
+    const st = el("studio2"); if (st) st.onclick = () => setMode("studio");
+  }
+}
+
+/** Never upscale past the images that were given, and never hand a phone a
+    full-size canvas. */
+function autoScaleFor(p) {
+  const [FW, FH] = resFor(p.intake.aspect);
+  const srcLong = Math.max(...(p.hubs || []).map(h => Math.max(h.width, h.height)).concat([0]));
+  const fromSource = srcLong ? Math.min(1, Math.max(0.25, Math.round((srcLong / Math.max(FW, FH)) * 100) / 100)) : 1;
+  return isSmallScreen() ? Math.min(0.5, fromSource) : fromSource;
+}
+
+async function rDone(failed = 0) {
+  const D = P.deliverables || {};
+  const v = D.verification || {};
+  if (!D.film) return rSimple();
+  await setHTML(el("main"), `<div class="simple">
+    <h1>Your film is ready</h1>
+    <div class="card"><video data-file="${D.film}" controls playsinline style="width:100%;border-radius:8px;background:#000"></video>
+      <div class="row" style="margin-top:12px">
+        <a class="btn" data-file="${D.film}" download="${esc((P.name || "film").replace(/\s+/g, "-").toLowerCase())}.${D.film.split(".").pop()}">Download the film</a>
+        <button class="btn secondary" id="another">Make another</button>
+      </div>
+      <p class="muted" style="margin-top:12px">${v.duration_s || "?"} seconds · ${v.width || "?"}×${v.height || "?"} · ${esc(v.container || "")}${v.interoperable === false ? " (plays in a browser; run it through a converter for PowerPoint)" : ""}</p>
+      ${failed ? `<div class="note warn">${failed} shot${failed === 1 ? "" : "s"} did not pass the quality check and ${failed === 1 ? "was" : "were"} used anyway. Open the studio to re-shoot ${failed === 1 ? "it" : "them"}.</div>` : ""}
+    </div>
+    <p class="muted foot"><a href="#" id="tostudio2">Open this in the full studio</a> to change the shots, the titles or the order.</p>
+  </div>`);
+  el("another").onclick = () => busy(async () => { P = null; await rSimple(); });
+  el("tostudio2").onclick = (e) => { e.preventDefault(); setMode("studio"); };
+}
+
 // -------------------------------------------------------------------- home
 async function rHome() {
   const list = await api("/api/projects");
@@ -456,6 +774,10 @@ async function rHome() {
       <div class="card"><h3 style="margin-top:0">Bring a project in</h3>
         <p class="muted">Projects live in this browser only. An export is a ZIP with everything in it; import it here on any machine.</p>
         <input type="file" id="importfile" accept=".zip,application/zip">
+      </div>
+      <div class="card"><h3 style="margin-top:0">Just want a film?</h3>
+        <p class="muted">The simple screen asks for your images and the weather you want, and does the rest on its own.</p>
+        <div><button class="btn secondary" onclick="setMode('simple')">Back to the simple screen</button></div>
       </div>
       <div class="card"><h3 style="margin-top:0">How it works</h3>
         <p class="muted">Upload the renders, say where the building is and what you want noticed, approve a shot plan, and the engine generates every frame from those renders, measures what comes back and cuts it together. Out of the box it uses a demo generator that costs nothing, so a whole project can be rehearsed before any money is involved. Settings switches to a real API.${q ? ` About ${(q.free / 1e9).toFixed(1)} GB of browser storage is free.` : ""}</p>
